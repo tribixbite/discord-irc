@@ -31,3 +31,4 @@ config.json
 
 # Build
 dist/
+.idea/

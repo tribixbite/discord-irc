@@ -27,9 +27,8 @@
     "build": "babel lib --out-dir dist",
     "prepare": "npm run build",
     "lint": "eslint . --ignore-path .gitignore",
-    "coverage": "cross-env NODE_ENV=test nyc --require @babel/register mocha -- 'test/*.test.js'",
     "save-coverage": "nyc report --reporter=lcov",
-    "test": "npm run lint && npm run coverage"
+    "test": "mocha --require @babel/register -- 'test/*.test.js'"
   },
   "author": {
     "name": "Reactiflux"
@@ -52,16 +51,10 @@
     "@babel/eslint-parser": "^7.13.14",
     "@babel/preset-env": "^7.13.15",
     "@babel/register": "^7.13.16",
-    "@istanbuljs/nyc-config-babel": "^3.0.0",
-    "babel-plugin-istanbul": "^6.0.0",
     "chai": "^4.3.4",
-    "coveralls": "^3.1.0",
-    "cross-env": "^7.0.3",
     "eslint": "^8.19.0",
     "eslint-config-airbnb-base": "^15.0.0",
-    "eslint-plugin-import": "^2.22.1",
     "mocha": "^10.0.0",
-    "nyc": "^15.1.0",
     "sinon": "^14.0.0",
     "sinon-chai": "^3.6.0"
   }
