@@ -1,0 +1,16 @@
+{
+  "extends": "@tsconfig/node16/tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+
+    "allowJs": true,
+    "checkJs": true,
+
+    "noImplicitAny": false,
+
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "skipLibCheck": true
+  },
+  "include": ["./lib/**/*"]
+}
