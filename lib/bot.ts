@@ -1,6 +1,13 @@
 import _ from 'lodash';
 import irc from 'irc-upd';
-import discord, { Intents } from 'discord.js';
+import discord, {
+  AnyChannel,
+  BaseGuildTextChannel,
+  Intents,
+  NewsChannel,
+  TextChannel,
+  WebhookClient,
+} from 'discord.js';
 import logger from './logger';
 import { ConfigurationError } from './errors';
 import { validateChannelMapping } from './validators';
@@ -61,7 +68,7 @@ class Bot {
   formatWebhookAvatarURL;
   channelUsers;
   channelMapping;
-  webhooks;
+  webhooks: Record<string, { id: unknown; client: WebhookClient }>;
   invertedMapping;
   autoSendCommands;
   ircClient;
@@ -76,7 +83,6 @@ class Bot {
     validateChannelMapping(options.channelMapping);
 
     this.discord = new discord.Client({
-      autoReconnect: true,
       retryLimit: 3,
       intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES],
     });
@@ -352,7 +358,10 @@ class Bot {
               if (discId) {
                 discId.forEach((id) => {
                   const dId = id.substring(2, id.length - 1);
-                  const name = this.discord.users.find('id', dId).username;
+                  const name = (this.discord.users as any).find(
+                    'id',
+                    dId,
+                  ).username;
                   value = value.replace(id, name);
                 });
               }
@@ -385,7 +394,7 @@ class Bot {
     return text
       .replace(/<#(\d+)>/g, (match, channelId) => {
         const channel = this.discord.channels.cache.get(channelId);
-        if (channel) return `#${channel.name}`;
+        if (channel && 'name' in channel) return `#${channel.name}`;
         return '#deleted-channel';
       })
       .replace(/<@&(\d+)>/g, (match, roleId) => {
@@ -416,7 +425,7 @@ class Bot {
     return ignoredName || ignoredId;
   }
 
-  static substitutePattern(message, patternMapping) {
+  static substitutePattern(message: string, patternMapping) {
     return message.replace(
       patternMatch,
       (match, varName) => patternMapping[varName] || match,
@@ -427,7 +436,7 @@ class Bot {
     const { author } = message;
     // Ignore messages sent by the bot itself:
     if (
-      author.id === this.discord.user.id ||
+      author.id === this.discord.user?.id ||
       Object.keys(this.webhooks).some(
         (channel) => this.webhooks[channel].id === author.id,
       )
@@ -481,6 +490,8 @@ class Bot {
         text,
         discordChannel: channelName,
         ircChannel,
+        side: undefined as unknown,
+        attachmentURL: undefined as unknown,
       };
 
       if (this.isCommandMessage(text)) {
@@ -533,19 +544,32 @@ class Bot {
     }
   }
 
-  findDiscordChannel(ircChannel) {
+  findDiscordChannel(ircChannel: string) {
     const discordChannelName = this.invertedMapping[ircChannel.toLowerCase()];
     if (discordChannelName) {
       // #channel -> channel before retrieving and select only text channels:
-      let discordChannel = null;
+      let discordChannel: BaseGuildTextChannel | undefined;
+
+      const isTextChannel = (channel: AnyChannel): channel is TextChannel =>
+        channel instanceof BaseGuildTextChannel;
 
       if (this.discord.channels.cache.has(discordChannelName)) {
-        discordChannel = this.discord.channels.cache.get(discordChannelName);
+        discordChannel = this.discord.channels.cache.get(discordChannelName) as
+          | BaseGuildTextChannel
+          | undefined;
       } else if (discordChannelName.startsWith('#')) {
         discordChannel = this.discord.channels.cache
           // unclear if this UNKNOWN is a test bug or happens in the real world
-          .filter((c) => c.type === 'text' || c.type === 'UNKNOWN')
-          .find((c) => c.name === discordChannelName.slice(1));
+          .filter(
+            (c: any) =>
+              c.type === 'text' ||
+              c.type === 'UNKNOWN' ||
+              c.type === 'GUILD_TEXT',
+          )
+          .find(
+            (c) =>
+              (c as BaseGuildTextChannel).name === discordChannelName.slice(1),
+          ) as BaseGuildTextChannel | undefined;
       }
 
       if (!discordChannel) {
@@ -565,8 +589,10 @@ class Bot {
     return discordChannelName && this.webhooks[discordChannelName];
   }
 
-  getDiscordAvatar(nick, channel) {
-    const guildMembers = this.findDiscordChannel(channel).guild.members.cache;
+  getDiscordAvatar(nick: string, channel: string) {
+    const discordChannel = this.findDiscordChannel(channel);
+    if (!discordChannel) return null;
+    const guildMembers = discordChannel.guild.members.cache;
     const findByNicknameOrUsername = (caseSensitive) => (member) => {
       if (caseSensitive) {
         return member.user.username === nick || member.nickname === nick;
@@ -588,7 +614,7 @@ class Bot {
 
     // No matching user or more than one => default avatar
     if (users && users.size === 1) {
-      const url = users.first().user.avatarURL({ size: 128, format: 'png' });
+      const url = users.first()?.user.avatarURL({ size: 128, format: 'png' });
       if (url) return url;
     }
 
@@ -632,6 +658,9 @@ class Bot {
       text: withFormat,
       discordChannel: `#${discordChannel.name}`,
       ircChannel: channel,
+      side: undefined as unknown,
+      withMentions: undefined as unknown,
+      withFilteredMentions: undefined as unknown,
     };
 
     if (this.isCommandMessage(text)) {
@@ -654,6 +683,7 @@ class Bot {
 
     const { guild } = discordChannel;
     const withMentions = withFormat
+      // @ts-expect-error TS doesn't seem to see the valid overload of replace here?
       .replace(/@([^\s#]+)#(\d+)/g, (match, username, discriminator) => {
         // @username#1234 => mention
         // skips usernames including spaces for ease (they cannot include hashes)
@@ -667,15 +697,18 @@ class Bot {
 
         return match;
       })
+      // @ts-expect-error TS doesn't seem to see the valid overload of replace here?
       .replace(/:(\w+):/g, (match, ident) => {
         // :emoji: => mention, case sensitively
         const emoji = guild.emojis.cache.find(
+          // @ts-expect-error TS doesn't seem to see the valid overload of replace here?
           (x) => x.name === ident && x.requiresColons,
         );
         if (emoji) return emoji;
 
         return match;
       })
+      // @ts-expect-error TS doesn't seem to see the valid overload of replace here?
       .replace(/#([^\s#@'!?,.]+)/g, (match, channelName) => {
         // channel names can't contain spaces, #, @, ', !, ?, , or .
         // (based on brief testing. they also can't contain some other symbols,
@@ -698,7 +731,7 @@ class Bot {
         '->',
         `#${discordChannel.name}`,
       );
-      const permissions = discordChannel.permissionsFor(this.discord.user);
+      const permissions = discordChannel.permissionsFor(this.discord.user!);
       let canPingEveryone = false;
       if (permissions) {
         canPingEveryone = permissions.has(
