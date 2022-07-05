@@ -37,6 +37,35 @@ const patternMatch = /{\$(.+?)}/g;
  * @param {object} options - server, nickname, channelMapping, outgoingToken, incomingURL
  */
 class Bot {
+  discord: discord.Client;
+
+  server;
+  nickname;
+  ircOptions;
+  discordToken;
+  commandCharacters;
+  ircNickColor;
+  ircNickColors;
+  parallelPingFix;
+  channels;
+  ircStatusNotices;
+  announceSelfJoin;
+  webhookOptions;
+  ignoreUsers;
+
+  format;
+  formatIRCText;
+  formatURLAttachment;
+  formatCommandPrelude;
+  formatDiscord;
+  formatWebhookAvatarURL;
+  channelUsers;
+  channelMapping;
+  webhooks;
+  invertedMapping;
+  autoSendCommands;
+  ircClient;
+
   constructor(options) {
     REQUIRED_FIELDS.forEach((field) => {
       if (!options[field]) {

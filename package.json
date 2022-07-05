@@ -24,12 +24,11 @@
   },
   "scripts": {
     "start": "node dist/index.js",
-    "build": "babel lib --out-dir dist",
+    "build": "tsc",
     "format": "prettier --write '{lib,test}/**/*.?s'",
     "prepare": "npm run build",
     "lint": "eslint . --ignore-path .gitignore",
-    "save-coverage": "nyc report --reporter=lcov",
-    "test": "mocha --require @babel/register -- 'test/*.test.?s'"
+    "test": "mocha --require ./test/babel-register.js -- 'test/*.test.?s'"
   },
   "author": {
     "name": "Reactiflux"
