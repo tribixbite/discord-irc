@@ -1,7 +1,7 @@
 /* eslint-disable class-methods-use-this */
 import events from 'events';
 import sinon from 'sinon';
-import discord from 'discord.js';
+import discord, { Options } from 'discord.js';
 
 export default function createDiscordStub(sendStub) {
   return class DiscordStub extends events.EventEmitter {
@@ -10,12 +10,13 @@ export default function createDiscordStub(sendStub) {
       this.user = {
         id: 'testid'
       };
-      this.channels = new discord.ChannelManager(this, []);
       this.options = {
         http: {
           cdn: ''
-        }
+        },
+        makeCache: Options.cacheEverything(),
       };
+      this.channels = new discord.ChannelManager(this, []);
 
       this.users = new discord.UserManager(this, []);
       this.guilds = new discord.GuildManager(this, []);
