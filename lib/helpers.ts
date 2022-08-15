@@ -7,7 +7,7 @@ import { ConfigurationError } from './errors';
  * @return {object[]}
  */
 export function createBots(configFile) {
-  const bots = [];
+  const bots: Bot[] = [];
 
   // The config file can be both an array and an object
   if (Array.isArray(configFile)) {
