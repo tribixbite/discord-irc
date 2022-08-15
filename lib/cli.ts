@@ -7,7 +7,6 @@ import stripJsonComments from 'strip-json-comments';
 import { endsWith } from 'lodash';
 import * as helpers from './helpers';
 import { ConfigurationError } from './errors';
-import { version } from '../package.json';
 
 function readJSONConfig(filePath) {
   const configFile = fs.readFileSync(filePath, { encoding: 'utf8' });
@@ -26,7 +25,8 @@ function readJSONConfig(filePath) {
 
 function run() {
   program
-    .version(version)
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    .version(require('../package.json').version ?? 'git')
     .option(
       '-c, --config <path>',
       'Sets the path to the config file, otherwise read from the env variable CONFIG_FILE.',

@@ -153,16 +153,11 @@ The bot will produce a warning when started if the IRC library is unable to conv
 
 Further information can be found in [the installation section of irc-upd](https://github.com/Throne3d/node-irc#character-set-detection).
 
-## Tests
-Run the tests with:
-```bash
-$ npm test
-```
 
-## Style Guide
-discord-irc follows the [Airbnb Style Guide](https://github.com/airbnb/javascript).
-[ESLint](http://eslint.org/) is used to make sure this is followed correctly, which can be run with:
+## Developer notes
 
 ```bash
-$ npm run lint
+npm run format
+npm run lint
+npm test
 ```
