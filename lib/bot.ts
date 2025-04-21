@@ -1,4 +1,3 @@
-import _ from 'lodash';
 import irc from 'irc-upd';
 import discord, {
   AnyChannel,
@@ -94,7 +93,9 @@ class Bot {
     this.ircNickColor = options.ircNickColor !== false; // default to true
     this.ircNickColors = options.ircNickColors || DEFAULT_NICK_COLORS;
     this.parallelPingFix = options.parallelPingFix === true; // default: false
-    this.channels = _.values(options.channelMapping);
+    this.channels = Object.values(
+      options.channelMapping as Record<string, string>,
+    );
     this.ircStatusNotices = options.ircStatusNotices;
     this.announceSelfJoin = options.announceSelfJoin;
     this.webhookOptions = options.webhooks;
@@ -140,17 +141,18 @@ class Bot {
     this.channelUsers = {};
 
     this.channelMapping = {};
+    this.invertedMapping = {};
     this.webhooks = {};
 
     // Remove channel passwords from the mapping and lowercase IRC channel names
-    _.forOwn(
+    for (const [discordChan, ircChan] of Object.entries(
       options.channelMapping as Record<string, string>,
-      (ircChan, discordChan) => {
-        this.channelMapping[discordChan] = ircChan.split(' ')[0].toLowerCase();
-      },
-    );
+    )) {
+      const splut = ircChan.split(' ')[0].toLowerCase();
+      this.channelMapping[discordChan] = splut;
+      this.invertedMapping[splut] = discordChan;
+    }
 
-    this.invertedMapping = _.invert(this.channelMapping);
     this.autoSendCommands = options.autoSendCommands || [];
   }
 
@@ -159,14 +161,17 @@ class Bot {
     await this.discord.login(this.discordToken);
 
     // Extract id and token from Webhook urls and connect.
-    _.forOwn(this.webhookOptions, (url, channel) => {
+    for (const [channel, url] of Object.entries(
+      (this.webhookOptions ?? {}) as Record<string, string>,
+    )) {
       const [id, token] = url.split('/').slice(-2);
-      const client = new discord.WebhookClient(id, token);
+      // TODO: surely this is completely wrong, the types do not allow anything like this
+      const client = new discord.WebhookClient(id as any, token as any);
       this.webhooks[channel] = {
         id,
         client,
       };
-    });
+    }
 
     const ircOptions = {
       userName: this.nickname,
@@ -741,11 +746,9 @@ class Bot {
         );
       }
       const avatarURL = this.getDiscordAvatar(author, channel);
-      const username = _.padEnd(
-        author.substring(0, USERNAME_MAX_LENGTH),
-        USERNAME_MIN_LENGTH,
-        '_',
-      );
+      const username = author
+        .substring(0, USERNAME_MAX_LENGTH)
+        .padEnd(USERNAME_MIN_LENGTH, '_');
       webhook.client
         .send(withMentions, {
           username,

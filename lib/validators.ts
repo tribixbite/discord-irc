@@ -1,15 +1,11 @@
-import _ from 'lodash';
 import { ConfigurationError } from './errors';
 
-/**
- * Validates a given channel mapping, throwing an error if it's invalid
- * @param  {Object} mapping
- * @return {Object}
- */
-export function validateChannelMapping(mapping) {
-  if (!_.isObject(mapping)) {
-    throw new ConfigurationError('Invalid channel mapping given');
+export function validateChannelMapping(mapping: unknown) {
+  if (!mapping || typeof mapping !== 'object') {
+    throw new ConfigurationError(
+      'Invalid channel mapping given: ' + JSON.stringify(mapping),
+    );
   }
 
-  return mapping;
+  return mapping as Record<string, string>;
 }
