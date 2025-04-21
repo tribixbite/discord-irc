@@ -19,7 +19,7 @@ vi.mock('../lib/logger', () => ({
 }));
 
 describe('Bot Events', () => {
-  const createBot = (optConfig = null) => {
+  const createBot = (optConfig: Record<string, unknown> | null = null) => {
     const useConfig = optConfig || config;
     const bot = new Bot(useConfig);
     bot.sendToIRC = vi.fn();
@@ -34,8 +34,8 @@ describe('Bot Events', () => {
   beforeEach(async () => {
     sendStub = vi.fn();
     irc.Client = ClientStub;
-    discord.Client = createDiscordStub(sendStub);
-    discord.WebhookClient = createWebhookStub(sendStub);
+    discord.Client = createDiscordStub(sendStub) as never;
+    discord.WebhookClient = createWebhookStub(sendStub) as never;
     ClientStub.prototype.send = vi.fn();
     ClientStub.prototype.join = vi.fn();
     bot = createBot();
@@ -62,10 +62,10 @@ describe('Bot Events', () => {
   it('should try to send autoSendCommands on registered IRC event', () => {
     bot.ircClient.emit('registered');
     expect(ClientStub.prototype.send).toHaveBeenCalledTimes(2);
-    expect(ClientStub.prototype.send.mock.calls[0]).toEqual(
+    expect(vi.mocked(ClientStub.prototype.send).mock.calls[0]).toEqual(
       config.autoSendCommands[0],
     );
-    expect(ClientStub.prototype.send.mock.calls[1]).toEqual(
+    expect(vi.mocked(ClientStub.prototype.send).mock.calls[1]).toEqual(
       config.autoSendCommands[1],
     );
   });
@@ -75,20 +75,20 @@ describe('Bot Events', () => {
     const ircError = new Error('irc');
     bot.discord.emit('error', discordError);
     bot.ircClient.emit('error', ircError);
-    expect(logger.error.mock.calls[0][0]).toEqual(
-      'Received error event from Discord',
-    );
-    expect(logger.error.mock.calls[0][1]).toEqual(discordError);
-    expect(logger.error.mock.calls[1][0]).toEqual(
-      'Received error event from IRC',
-    );
-    expect(logger.error.mock.calls[1][1]).toEqual(ircError);
+    const mock = vi.mocked(logger.error).mock;
+    expect(mock.calls[0][0]).toEqual('Received error event from Discord');
+    // @ts-expect-error potentially invalid overloads on logger
+    expect(mock.calls[0][1]).toEqual(discordError);
+    expect(mock.calls[1][0]).toEqual('Received error event from IRC');
+    // @ts-expect-error potentially invalid overloads on logger
+    expect(mock.calls[1][1]).toEqual(ircError);
   });
 
   it('should warn log on warn events from discord', () => {
     const discordError = new Error('discord');
     bot.discord.emit('warn', discordError);
-    const [message, error] = logger.warn.mock.calls[0];
+    // @ts-expect-error potentially invalid overloads on logger
+    const [message, error] = vi.mocked(logger.warn).mock.calls[0];
     expect(message).toEqual('Received warn event from Discord');
     expect(error).toEqual(discordError);
   });
@@ -296,8 +296,9 @@ describe('Bot Events', () => {
     // send quit message for all channels on server, as the node-irc library does
     bot.ircClient.emit('quit', nick, reason, [channel1, channel2, channel3]);
     expect(bot.sendExactToDiscord).toHaveBeenCalledTimes(2);
-    expect(bot.sendExactToDiscord.mock.calls[0]).toEqual([channel1, text]);
-    expect(bot.sendExactToDiscord.mock.calls[1]).toEqual([channel3, text]);
+    const mock = vi.mocked(bot.sendExactToDiscord).mock;
+    expect(mock.calls[0]).toEqual([channel1, text]);
+    expect(mock.calls[1]).toEqual([channel3, text]);
   });
 
   it('should not crash with join/part/quit messages and weird channel casing', async () => {
@@ -340,10 +341,11 @@ describe('Bot Events', () => {
     bot.ircClient.emit('part', channel, 'user1', reason);
     bot.ircClient.emit('quit', 'user2', reason, [channel]);
     expect(logger.warn).toHaveBeenCalledTimes(2);
-    expect(logger.warn.mock.calls[0]).toEqual([
+    const mock = vi.mocked(logger.warn).mock;
+    expect(mock.calls[0]).toEqual([
       `No channelUsers found for ${channel} when user1 parted.`,
     ]);
-    expect(logger.warn.mock.calls[1]).toEqual([
+    expect(mock.calls[1]).toEqual([
       `No channelUsers found for ${channel} when user2 quit, ignoring.`,
     ]);
   });
@@ -376,18 +378,22 @@ describe('Bot Events', () => {
     expect(listeners.length).toEqual(1);
   });
 
+  const mock = vi.mocked(logger.debug).mock;
   it('should join channels when invited', () => {
     const channel = '#irc';
     const author = 'user';
     bot.ircClient.emit('invite', channel, author);
-    const firstCall = logger.debug.mock.calls[1];
+    const firstCall = mock.calls[1];
     expect(firstCall[0]).toEqual('Received invite:');
+    // @ts-expect-error potentially invalid overloads on logger
     expect(firstCall[1]).toEqual(channel);
+    // @ts-expect-error potentially invalid overloads on logger
     expect(firstCall[2]).toEqual(author);
 
     expect(ClientStub.prototype.join).toHaveBeenCalledWith(channel);
-    const secondCall = logger.debug.mock.calls[2];
+    const secondCall = mock.calls[2];
     expect(secondCall[0]).toEqual('Joining channel:');
+    // @ts-expect-error potentially invalid overloads on logger
     expect(secondCall[1]).toEqual(channel);
   });
 
@@ -395,14 +401,17 @@ describe('Bot Events', () => {
     const channel = '#wrong';
     const author = 'user';
     bot.ircClient.emit('invite', channel, author);
-    const firstCall = logger.debug.mock.calls[1];
+    const firstCall = mock.calls[1];
     expect(firstCall[0]).toEqual('Received invite:');
+    // @ts-expect-error potentially invalid overloads on logger
     expect(firstCall[1]).toEqual(channel);
+    // @ts-expect-error potentially invalid overloads on logger
     expect(firstCall[2]).toEqual(author);
 
     expect(ClientStub.prototype.join).not.toHaveBeenCalled();
-    const secondCall = logger.debug.mock.calls[2];
+    const secondCall = mock.calls[2];
     expect(secondCall[0]).toEqual('Channel not found in config, not joining:');
+    // @ts-expect-error potentially invalid overloads on logger
     expect(secondCall[1]).toEqual(channel);
   });
 });

@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/unbound-method */
 
 import { it, afterEach, beforeEach, describe, expect, vi } from 'vitest';
 import irc from 'irc-upd';
@@ -35,11 +36,13 @@ describe('Bot', async () => {
 
   // modified variants of https://github.com/discordjs/discord.js/blob/stable/src/client/ClientDataManager.js
   // (for easier stubbing)
-  const addUser = function (user, member = null) {
+  const addUser = function (user, member: unknown = null) {
+    // @ts-expect-error private but only at compile time
     const userObj = new discord.User(bot.discord, user);
     // also set guild members
     const guildMember = { ...(member || user), user: userObj };
     guildMember.nick = guildMember.nickname; // nick => nickname in Discord API
+    // @ts-expect-error private but only at compile time
     const memberObj = new discord.GuildMember(bot.discord, guildMember, guild);
     guild.members.cache.set(userObj.id, memberObj);
     bot.discord.users.cache.set(userObj.id, userObj);
@@ -47,28 +50,33 @@ describe('Bot', async () => {
   };
 
   const addRole = function (role) {
+    // @ts-expect-error private but only at compile time
     const roleObj = new discord.Role(bot.discord, role, guild);
     guild.roles.cache.set(roleObj.id, roleObj);
     return roleObj;
   };
 
   const addEmoji = function (emoji) {
+    // @ts-expect-error private but only at compile time
     const emojiObj = new discord.GuildEmoji(bot.discord, emoji, guild);
     guild.emojis.cache.set(emojiObj.id, emojiObj);
     return emojiObj;
   };
 
+  let sayMock;
+
   beforeEach(async () => {
     sendStub = vi.fn();
 
     irc.Client = ClientStub;
-    discord.Client = createDiscordStub(sendStub);
+    discord.Client = createDiscordStub(sendStub) as never;
 
-    ClientStub.prototype.say = vi.fn();
+    sayMock = vi.fn();
+    ClientStub.prototype.say = sayMock;
     ClientStub.prototype.send = vi.fn();
     ClientStub.prototype.join = vi.fn();
     sendWebhookMessageStub = vi.fn();
-    discord.WebhookClient = createWebhookStub(sendWebhookMessageStub);
+    discord.WebhookClient = createWebhookStub(sendWebhookMessageStub) as never;
 
     await setCustomBot(config);
   });
@@ -162,7 +170,7 @@ describe('Bot', async () => {
 
     bot.sendToIRC(message);
     const expected = `<${message.author.username}> ${text}`;
-    expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
+    expect(sayMock).toHaveBeenCalledWith('#irc', expected);
   });
 
   it('should only use message color defined in config', async () => {
@@ -184,7 +192,7 @@ describe('Bot', async () => {
 
     bot.sendToIRC(message);
     const expected = `<\u000307${message.author.username}\u000f> ${text}`;
-    expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
+    expect(sayMock).toHaveBeenCalledWith('#irc', expected);
   });
 
   it('should send correct messages to irc', async () => {
@@ -205,7 +213,7 @@ describe('Bot', async () => {
     bot.sendToIRC(message);
     // Wrap in colors:
     const expected = `<\u000304${message.author.username}\u000f> ${text}`;
-    expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
+    expect(sayMock).toHaveBeenCalledWith('#irc', expected);
   });
 
   it('should send to IRC channel mapped by discord channel ID if available', async () => {
@@ -227,10 +235,7 @@ describe('Bot', async () => {
     // Wrap it in colors:
     const expected = `<\u000312${message.author.username}\u000f> test message`;
     bot.sendToIRC(message);
-    expect(ClientStub.prototype.say).toHaveBeenCalledWith(
-      '#channelforid',
-      expected,
-    );
+    expect(sayMock).toHaveBeenCalledWith('#channelforid', expected);
   });
 
   it('should send to IRC channel mapped by discord channel name if ID not available', async () => {
@@ -252,7 +257,7 @@ describe('Bot', async () => {
     // Wrap it in colors:
     const expected = `<\u000312${message.author.username}\u000f> test message`;
     bot.sendToIRC(message);
-    expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
+    expect(sayMock).toHaveBeenCalledWith('#irc', expected);
   });
 
   it('should send attachment URL to IRC', async () => {
@@ -273,7 +278,7 @@ describe('Bot', async () => {
 
     bot.sendToIRC(message);
     const expected = `<\u000304${message.author.username}\u000f> ${attachmentUrl}`;
-    expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
+    expect(sayMock).toHaveBeenCalledWith('#irc', expected);
   });
 
   it('should send text message and attachment URL to IRC if both exist', async () => {
@@ -295,13 +300,13 @@ describe('Bot', async () => {
 
     bot.sendToIRC(message);
 
-    expect(ClientStub.prototype.say).toHaveBeenCalledWith(
+    expect(sayMock).toHaveBeenCalledWith(
       '#irc',
       `<\u000304${message.author.username}\u000f> ${text}`,
     );
 
     const expected = `<\u000304${message.author.username}\u000f> ${attachmentUrl}`;
-    expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
+    expect(sayMock).toHaveBeenCalledWith('#irc', expected);
   });
 
   it('should not send an empty text message with an attachment to IRC', async () => {
@@ -321,7 +326,7 @@ describe('Bot', async () => {
 
     bot.sendToIRC(message);
 
-    expect(ClientStub.prototype.say).toHaveBeenCalledOnce();
+    expect(sayMock).toHaveBeenCalledOnce();
   });
 
   it('should not send its own messages to irc', async () => {
@@ -334,7 +339,7 @@ describe('Bot', async () => {
     };
 
     bot.sendToIRC(message);
-    expect(ClientStub.prototype.say).not.toHaveBeenCalled();
+    expect(sayMock).not.toHaveBeenCalled();
   });
 
   it("should not send messages to irc if the channel isn't in the channel mapping", async () => {
@@ -350,7 +355,7 @@ describe('Bot', async () => {
     };
 
     bot.sendToIRC(message);
-    expect(ClientStub.prototype.say).not.toHaveBeenCalled();
+    expect(sayMock).not.toHaveBeenCalled();
   });
 
   it('should break mentions when parallelPingFix is enabled', async () => {
@@ -376,7 +381,7 @@ describe('Bot', async () => {
     bot.sendToIRC(message);
     // Wrap in colors:
     const expected = `<\u000304${brokenNickname}\u000f> ${text}`;
-    expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
+    expect(sayMock).toHaveBeenCalledWith('#irc', expected);
   });
 
   it('should parse text from discord when sending messages', async () => {
@@ -397,7 +402,7 @@ describe('Bot', async () => {
     // Wrap it in colors:
     const expected = `<\u000312${message.author.username}\u000f> #${message.channel.name}`;
     bot.sendToIRC(message);
-    expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
+    expect(sayMock).toHaveBeenCalledWith('#irc', expected);
   });
 
   it('should use #deleted-channel when referenced channel fails to exist', async () => {
@@ -419,7 +424,7 @@ describe('Bot', async () => {
     // Wrap it in colors:
     const expected = `<\u000312${message.author.username}\u000f> #deleted-channel`;
     bot.sendToIRC(message);
-    expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
+    expect(sayMock).toHaveBeenCalledWith('#irc', expected);
   });
 
   it('should convert user mentions from discord', async () => {
@@ -601,11 +606,11 @@ describe('Bot', async () => {
     };
 
     bot.sendToIRC(message);
-    expect(ClientStub.prototype.say.mock.calls[0]).toEqual([
+    expect(sayMock.mock.calls[0]).toEqual([
       '#irc',
       'Command sent from Discord by test:',
     ]);
-    expect(ClientStub.prototype.say.mock.calls[1]).toEqual(['#irc', text]);
+    expect(sayMock.mock.calls[1]).toEqual(['#irc', text]);
   });
 
   it('should support multi-character command prefixes', async () => {
@@ -625,11 +630,11 @@ describe('Bot', async () => {
     };
 
     bot.sendToIRC(message);
-    expect(ClientStub.prototype.say.mock.calls[0]).toEqual([
+    expect(sayMock.mock.calls[0]).toEqual([
       '#irc',
       'Command sent from Discord by test:',
     ]);
-    expect(ClientStub.prototype.say.mock.calls[1]).toEqual(['#irc', text]);
+    expect(sayMock.mock.calls[1]).toEqual(['#irc', text]);
   });
 
   it('should hide usernames for commands to Discord', async () => {
@@ -665,7 +670,7 @@ describe('Bot', async () => {
 
     bot.sendToIRC(message);
     const expected = `<${nickname}> ${text}`;
-    expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
+    expect(sayMock).toHaveBeenCalledWith('#irc', expected);
   });
 
   it.skip('should convert user nickname mentions from IRC', async () => {
@@ -884,7 +889,7 @@ describe('Bot', async () => {
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
-  it('should successfully send messages with default config', async () => {
+  it('should successfully send messages with default config 2', async () => {
     await setCustomBot(configMsgFormatDefault);
 
     bot.sendToDiscord('testuser', '#irc', 'test message');
@@ -906,7 +911,7 @@ describe('Bot', async () => {
     expect(sendStub).toHaveBeenCalledTimes(1);
   });
 
-  it('should not replace unmatched patterns', async () => {
+  it('should not replace unmatched patterns 2', async () => {
     const format = {
       discord: '{$unmatchedPattern} stays intact: {$author} {$text}',
     };
@@ -967,7 +972,7 @@ describe('Bot', async () => {
     const expected = '<testauthor> #discord => #irc: test message';
 
     bot.sendToIRC(message);
-    expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
+    expect(sayMock).toHaveBeenCalledWith('#irc', expected);
   });
 
   it('should respect custom formatting for commands in IRC output', async () => {
@@ -993,8 +998,8 @@ describe('Bot', async () => {
     const expected = 'testauthor from #discord sent command to #irc:';
 
     bot.sendToIRC(message);
-    expect(ClientStub.prototype.say.mock.calls[0]).toEqual(['#irc', expected]);
-    expect(ClientStub.prototype.say.mock.calls[1]).toEqual(['#irc', text]);
+    expect(sayMock.mock.calls[0]).toEqual(['#irc', expected]);
+    expect(sayMock.mock.calls[1]).toEqual(['#irc', text]);
   });
 
   it('should respect custom formatting for attachment URLs in IRC output', async () => {
@@ -1021,7 +1026,7 @@ describe('Bot', async () => {
 
     bot.sendToIRC(message);
     const expected = `<otherauthor> #discord => #irc, attachment: ${attachmentUrl}`;
-    expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
+    expect(sayMock).toHaveBeenCalledWith('#irc', expected);
   });
 
   it('should not bother with command prelude if falsy', async () => {
@@ -1043,8 +1048,8 @@ describe('Bot', async () => {
     };
 
     bot.sendToIRC(message);
-    expect(ClientStub.prototype.say).toHaveBeenCalledOnce();
-    expect(ClientStub.prototype.say.mock.calls[0]).toEqual(['#irc', text]);
+    expect(sayMock).toHaveBeenCalledOnce();
+    expect(sayMock.mock.calls[0]).toEqual(['#irc', text]);
 
     const username = 'test';
     const msg = '!testcmd';
@@ -1159,7 +1164,7 @@ describe('Bot', async () => {
 
     describe('when matching avatars', async () => {
       beforeEach(async () => {
-        setupUser(this);
+        setupUser();
       });
 
       it("should match a user's username", async () => {
@@ -1191,7 +1196,7 @@ describe('Bot', async () => {
       });
 
       it('should return no avatar when there are multiple matches', async () => {
-        setupCommonPair(this);
+        setupCommonPair();
         expect(bot.getDiscordAvatar('diffUser', '#irc')).not.toBe(null);
         expect(bot.getDiscordAvatar('diffNick', '#irc')).not.toBe(null);
         expect(bot.getDiscordAvatar('common', '#irc')).to.equal(null);
@@ -1227,7 +1232,7 @@ describe('Bot', async () => {
         };
         await setCustomBot(newConfig);
 
-        setupUser(this);
+        setupUser();
       });
 
       it("should use a matching user's avatar", async () => {
@@ -1252,7 +1257,7 @@ describe('Bot', async () => {
       });
 
       it('should use fallback when there are multiple matches', async () => {
-        setupCommonPair(this);
+        setupCommonPair();
         expect(bot.getDiscordAvatar('diffUser', '#irc')).toEqual(
           '/avatars/125/avatarURL.png?size=128',
         );
@@ -1295,7 +1300,7 @@ describe('Bot', async () => {
     };
 
     bot.sendToIRC(message);
-    expect(ClientStub.prototype.say).not.toHaveBeenCalled();
+    expect(sayMock).not.toHaveBeenCalled();
   });
 
   it('should not send messages to IRC if Discord user is ignored by id', async () => {
@@ -1313,6 +1318,6 @@ describe('Bot', async () => {
     };
 
     bot.sendToIRC(message);
-    expect(ClientStub.prototype.say).not.toHaveBeenCalled();
+    expect(sayMock).not.toHaveBeenCalled();
   });
 });

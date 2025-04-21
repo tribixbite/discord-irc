@@ -8,6 +8,10 @@ class ClientStub extends events.EventEmitter {
   }
 
   disconnect() {}
+
+  say() {}
+  send() {}
+  join() {}
 }
 
 export default ClientStub;
