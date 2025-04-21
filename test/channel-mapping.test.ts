@@ -11,7 +11,7 @@ import { validateChannelMapping } from '../lib/validators';
 describe('Channel Mapping', () => {
   beforeEach(() => {
     irc.Client = ClientStub;
-    discord.Client = DiscordStub;
+    discord.Client = DiscordStub as never;
   });
 
   it('should fail when not given proper JSON', () => {

@@ -57,7 +57,7 @@ describe('Formatting', () => {
       );
     });
 
-    it('should convert nested IRC format', () => {
+    it('should convert nested IRC format again', () => {
       expect(formatFromIRCToDiscord('\x02bold \x1funderline\x1f\x02')).toEqual(
         '**bold __underline__**',
       );
