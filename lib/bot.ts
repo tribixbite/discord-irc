@@ -7,7 +7,6 @@ import discord, {
   WebhookClient,
 } from 'discord.js';
 import { logger } from './logger';
-import { ConfigurationError } from './errors';
 import { validateChannelMapping } from './validators';
 import { formatFromDiscordToIRC, formatFromIRCToDiscord } from './formatting';
 
@@ -48,7 +47,7 @@ class Bot {
   nickname;
   ircOptions;
   discordToken;
-  commandCharacters;
+  commandCharacters: string[];
   ircNickColor;
   ircNickColors;
   parallelPingFix;
@@ -74,7 +73,7 @@ class Bot {
   constructor(options: Record<string, unknown>) {
     for (const field of REQUIRED_FIELDS) {
       if (!options[field]) {
-        throw new ConfigurationError(`Missing configuration field ${field}`);
+        throw new Error(`Missing configuration field: ${field}`);
       }
     }
 
@@ -89,7 +88,7 @@ class Bot {
     this.nickname = options.nickname;
     this.ircOptions = options.ircOptions;
     this.discordToken = options.discordToken;
-    this.commandCharacters = options.commandCharacters || [];
+    this.commandCharacters = (options.commandCharacters as string[]) || [];
     this.ircNickColor = options.ircNickColor !== false; // default to true
     this.ircNickColors = options.ircNickColors || DEFAULT_NICK_COLORS;
     this.parallelPingFix = options.parallelPingFix === true; // default: false
@@ -156,7 +155,7 @@ class Bot {
     this.autoSendCommands = options.autoSendCommands || [];
   }
 
-  async connect() {
+  async connect(): Promise<void> {
     logger.debug('Connecting to IRC and Discord');
     await this.discord.login(this.discordToken);
 
@@ -367,37 +366,38 @@ class Bot {
     return user.username;
   }
 
-  parseText(message) {
+  parseText(message: discord.Message): string {
     const usedFields = ['title', 'description', 'fields', 'image', 'footer'];
     let embed = '';
     if (message.embeds?.length) {
       for (const key of usedFields) {
-        if (message.embeds[0][key]) {
-          if (key === 'fields') {
-            for (const field of message.embeds[0][key]) {
-              let { value } = field;
-              const discId = value.match(/<@[0-9]+>/g);
-              if (discId) {
-                for (const id of discId) {
-                  const dId = id.substring(2, id.length - 1);
-                  const name = (this.discord.users as any).find(
-                    'id',
-                    dId,
-                  ).username;
-                  value = value.replace(id, name);
-                }
+        if (!message.embeds[0][key]) {
+          continue;
+        }
+        if (key === 'fields') {
+          for (const field of message.embeds[0][key]) {
+            let { value } = field;
+            const discId = value.match(/<@[0-9]+>/g);
+            if (discId) {
+              for (const id of discId) {
+                const dId = id.substring(2, id.length - 1);
+                const name = (this.discord.users as any).find(
+                  'id',
+                  dId,
+                ).username;
+                value = value.replace(id, name);
               }
-              embed += `\u0002${field.name}\u0002\n${value}\n`;
             }
-          } else if (key === 'image') {
-            embed += `${message.embeds[0][key].url}\n`;
-          } else if (key === 'footer') {
-            embed += message.embeds[0][key].text;
-          } else if (key === 'title') {
-            embed += `\u0002${message.embeds[0][key]}\u0002\n`;
-          } else {
-            embed += `${message.embeds[0][key]}\n`;
+            embed += `\u0002${field.name}\u0002\n${value}\n`;
           }
+        } else if (key === 'image') {
+          embed += `${message.embeds[0][key].url}\n`;
+        } else if (key === 'footer') {
+          embed += message.embeds[0][key].text;
+        } else if (key === 'title') {
+          embed += `\u0002${message.embeds[0][key]}\u0002\n`;
+        } else {
+          embed += `${message.embeds[0][key]}\n`;
         }
       }
     }
@@ -420,14 +420,14 @@ class Bot {
         return '#deleted-channel';
       })
       .replace(/<@&(\d+)>/g, (match, roleId) => {
-        const role = message.guild.roles.cache.get(roleId);
+        const role = message.guild?.roles.cache.get(roleId);
         if (role) return `@${role.name}`;
         return '@deleted-role';
       })
       .replace(/<a?(:\w+:)\d+>/g, (match, emoteName) => emoteName);
   }
 
-  isCommandMessage(message) {
+  isCommandMessage(message: string) {
     return this.commandCharacters.some((prefix) => message.startsWith(prefix));
   }
 
@@ -437,7 +437,7 @@ class Bot {
     );
   }
 
-  ignoredDiscordUser(discordUser) {
+  ignoredDiscordUser(discordUser: discord.User) {
     const ignoredName = this.ignoreUsers.discord.some(
       (i) => i.toLowerCase() === discordUser.username.toLowerCase(),
     );
@@ -454,7 +454,7 @@ class Bot {
     );
   }
 
-  sendToIRC(message) {
+  sendToIRC(message: discord.Message) {
     const { author } = message;
     // Ignore messages sent by the bot itself:
     if (
@@ -469,6 +469,8 @@ class Bot {
     if (this.ignoredDiscordUser(author)) {
       return;
     }
+
+    if (!isTextChannel(message.channel)) return;
 
     const channelName = `#${message.channel.name}`;
     const ircChannel =
@@ -573,9 +575,6 @@ class Bot {
       // #channel -> channel before retrieving and select only text channels:
       let discordChannel: BaseGuildTextChannel | undefined;
 
-      const isTextChannel = (channel: AnyChannel): channel is TextChannel =>
-        channel instanceof BaseGuildTextChannel;
-
       if (this.discord.channels.cache.has(discordChannelName)) {
         discordChannel = this.discord.channels.cache.get(discordChannelName) as
           | BaseGuildTextChannel
@@ -607,7 +606,7 @@ class Bot {
     return null;
   }
 
-  findWebhook(ircChannel) {
+  findWebhook(ircChannel: string) {
     const discordChannelName = this.invertedMapping[ircChannel.toLowerCase()];
     return discordChannelName && this.webhooks[discordChannelName];
   }
@@ -809,5 +808,10 @@ class Bot {
     await discordChannel.send(text);
   }
 }
+
+export const TEST_HACK_CHANNEL = Symbol();
+
+const isTextChannel = (channel: AnyChannel): channel is TextChannel =>
+  channel instanceof BaseGuildTextChannel || TEST_HACK_CHANNEL in channel;
 
 export default Bot;

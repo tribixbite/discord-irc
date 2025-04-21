@@ -15,11 +15,11 @@ async function readJSConfig(filePath: string): Promise<unknown> {
   return config;
 }
 
-export async function run() {
+export async function run(): Promise<void> {
   const [, , _c, configPath, ...rest] = process.argv;
   if (rest.length || _c !== '-c' || !configPath) {
     console.error('Usage: -c <config-file>');
-    process.exit(2);
+    return process.exit(2);
   }
 
   const completePath = resolve(process.cwd(), configPath);

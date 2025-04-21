@@ -3,7 +3,7 @@
 import { it, afterEach, beforeEach, describe, expect, vi } from 'vitest';
 import irc from 'irc-upd';
 import discord from 'discord.js';
-import Bot from '../lib/bot';
+import Bot, { TEST_HACK_CHANNEL } from '../lib/bot';
 import createDiscordStub from './stubs/discord-stub';
 import ClientStub from './stubs/irc-client-stub';
 import createWebhookStub from './stubs/webhook-stub';
@@ -84,12 +84,6 @@ describe('Bot', async () => {
     vi.restoreAllMocks();
   });
 
-  const createAttachments = (url) => {
-    const attachments = new discord.Collection();
-    attachments.set(1, { url });
-    return attachments;
-  };
-
   it('should invert the channel mapping', async () => {
     expect(bot.invertedMapping['#irc']).toEqual('#discord');
   });
@@ -154,7 +148,7 @@ describe('Bot', async () => {
     const text = 'testmessage';
     const newConfig = { ...config, ircNickColor: false };
     await setCustomBot(newConfig);
-    const message = {
+    const message = messageFor({
       content: text,
       mentions: { users: [] },
       channel: {
@@ -165,7 +159,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     bot.sendToIRC(message);
     const expected = `<${message.author.username}> ${text}`;
@@ -176,7 +170,7 @@ describe('Bot', async () => {
     const text = 'testmessage';
     const newConfig = { ...config, ircNickColors: ['orange'] };
     await setCustomBot(newConfig);
-    const message = {
+    const message = messageFor({
       content: text,
       mentions: { users: [] },
       channel: {
@@ -187,7 +181,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     bot.sendToIRC(message);
     const expected = `<\u000307${message.author.username}\u000f> ${text}`;
@@ -196,7 +190,7 @@ describe('Bot', async () => {
 
   it('should send correct messages to irc', async () => {
     const text = 'testmessage';
-    const message = {
+    const message = messageFor({
       content: text,
       mentions: { users: [] },
       channel: {
@@ -207,7 +201,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     bot.sendToIRC(message);
     // Wrap in colors:
@@ -217,7 +211,7 @@ describe('Bot', async () => {
 
   it('should send to IRC channel mapped by discord channel ID if available', async () => {
     const text = 'test message';
-    const message = {
+    const message = messageFor({
       content: text,
       mentions: { users: [] },
       channel: {
@@ -229,7 +223,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     // Wrap it in colors:
     const expected = `<\u000312${message.author.username}\u000f> test message`;
@@ -239,7 +233,7 @@ describe('Bot', async () => {
 
   it('should send to IRC channel mapped by discord channel name if ID not available', async () => {
     const text = 'test message';
-    const message = {
+    const message = messageFor({
       content: text,
       mentions: { users: [] },
       channel: {
@@ -251,7 +245,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     // Wrap it in colors:
     const expected = `<\u000312${message.author.username}\u000f> test message`;
@@ -261,7 +255,7 @@ describe('Bot', async () => {
 
   it('should send attachment URL to IRC', async () => {
     const attachmentUrl = 'https://image/url.jpg';
-    const message = {
+    const message = messageFor({
       content: '',
       mentions: { users: [] },
       attachments: createAttachments(attachmentUrl),
@@ -273,7 +267,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     bot.sendToIRC(message);
     const expected = `<\u000304${message.author.username}\u000f> ${attachmentUrl}`;
@@ -283,7 +277,7 @@ describe('Bot', async () => {
   it('should send text message and attachment URL to IRC if both exist', async () => {
     const text = 'Look at this cute cat picture!';
     const attachmentUrl = 'https://image/url.jpg';
-    const message = {
+    const message = messageFor({
       content: text,
       attachments: createAttachments(attachmentUrl),
       mentions: { users: [] },
@@ -295,7 +289,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     bot.sendToIRC(message);
 
@@ -309,7 +303,7 @@ describe('Bot', async () => {
   });
 
   it('should not send an empty text message with an attachment to IRC', async () => {
-    const message = {
+    const message = messageFor({
       content: '',
       attachments: createAttachments('https://image/url.jpg'),
       mentions: { users: [] },
@@ -321,7 +315,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     bot.sendToIRC(message);
 
@@ -329,20 +323,20 @@ describe('Bot', async () => {
   });
 
   it('should not send its own messages to irc', async () => {
-    const message = {
+    const message = messageFor({
       author: {
         username: 'bot',
         id: bot.discord.user!.id,
       },
       guild: guild,
-    };
+    });
 
     bot.sendToIRC(message);
     expect(sayMock).not.toHaveBeenCalled();
   });
 
   it("should not send messages to irc if the channel isn't in the channel mapping", async () => {
-    const message = {
+    const message = messageFor({
       channel: {
         name: 'wrongdiscord',
       },
@@ -351,7 +345,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     bot.sendToIRC(message);
     expect(sayMock).not.toHaveBeenCalled();
@@ -364,7 +358,7 @@ describe('Bot', async () => {
     const text = 'testmessage';
     const username = 'otherauthor';
     const brokenNickname = 'o\u200Btherauthor';
-    const message = {
+    const message = messageFor({
       content: text,
       mentions: { users: [] },
       channel: {
@@ -375,7 +369,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     bot.sendToIRC(message);
     // Wrap in colors:
@@ -385,28 +379,29 @@ describe('Bot', async () => {
 
   it('should parse text from discord when sending messages', async () => {
     const text = '<#1234>';
-    const message = {
+    const channelName = 'discord';
+    const message = messageFor({
       content: text,
       mentions: { users: [] },
       channel: {
-        name: 'discord',
+        name: channelName,
       },
       author: {
         username: 'test',
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     // Wrap it in colors:
-    const expected = `<\u000312${message.author.username}\u000f> #${message.channel.name}`;
+    const expected = `<\u000312${message.author.username}\u000f> #${channelName}`;
     bot.sendToIRC(message);
     expect(sayMock).toHaveBeenCalledWith('#irc', expected);
   });
 
   it('should use #deleted-channel when referenced channel fails to exist', async () => {
     const text = '<#1235>';
-    const message = {
+    const message = messageFor({
       content: text,
       mentions: { users: [] },
       channel: {
@@ -417,7 +412,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     // Discord displays "#deleted-channel" if channel doesn't exist (e.g. <#1235>)
     // Wrap it in colors:
@@ -427,7 +422,7 @@ describe('Bot', async () => {
   });
 
   it('should convert user mentions from discord', async () => {
-    const message = {
+    const message = messageFor({
       mentions: {
         users: [
           {
@@ -438,13 +433,13 @@ describe('Bot', async () => {
       },
       content: '<@123> hi',
       guild: guild,
-    };
+    });
 
     expect(bot.parseText(message)).toEqual('@testuser hi');
   });
 
   it('should convert user nickname mentions from discord', async () => {
-    const message = {
+    const message = messageFor({
       mentions: {
         users: [
           {
@@ -455,25 +450,25 @@ describe('Bot', async () => {
       },
       content: '<@!123> hi',
       guild: guild,
-    };
+    });
 
     expect(bot.parseText(message)).toEqual('@testuser hi');
   });
 
   it('should convert twitch emotes from discord', async () => {
-    const message = {
+    const message = messageFor({
       mentions: { users: [] },
       content: '<:SCGWat:230473833046343680>',
-    };
+    });
 
     expect(bot.parseText(message)).toEqual(':SCGWat:');
   });
 
   it('should convert animated emoji from discord', async () => {
-    const message = {
+    const message = messageFor({
       mentions: { users: [] },
       content: '<a:in_love:432887860270465028>',
-    };
+    });
 
     expect(bot.parseText(message)).toEqual(':in_love:');
   });
@@ -582,17 +577,17 @@ describe('Bot', async () => {
   });
 
   it.skip('should convert newlines from discord', async () => {
-    const message = {
+    const message = messageFor({
       mentions: { users: [] },
       content: 'hi\nhi\r\nhi\r',
-    };
+    });
 
     expect(bot.parseText(message)).toEqual('hi hi hi ');
   });
 
   it('should hide usernames for commands to IRC', async () => {
     const text = '!test command';
-    const message = {
+    const message = messageFor({
       content: text,
       mentions: { users: [] },
       channel: {
@@ -603,7 +598,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     bot.sendToIRC(message);
     expect(sayMock.mock.calls[0]).toEqual([
@@ -616,7 +611,7 @@ describe('Bot', async () => {
   it('should support multi-character command prefixes', async () => {
     await setCustomBot({ ...config, commandCharacters: ['@@'] });
     const text = '@@test command';
-    const message = {
+    const message = messageFor({
       content: text,
       mentions: { users: [] },
       channel: {
@@ -627,7 +622,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     bot.sendToIRC(message);
     expect(sayMock.mock.calls[0]).toEqual([
@@ -655,7 +650,7 @@ describe('Bot', async () => {
     const id = 'not bot id';
     const nickname = 'discord-nickname';
     guild.members.cache.set(id, { nickname });
-    const message = {
+    const message = messageFor({
       content: text,
       mentions: { users: [] },
       channel: {
@@ -666,7 +661,7 @@ describe('Bot', async () => {
         id,
       },
       guild: guild,
-    };
+    });
 
     bot.sendToIRC(message);
     const expected = `<${nickname}> ${text}`;
@@ -727,7 +722,7 @@ describe('Bot', async () => {
   it('should convert role mentions from discord', async () => {
     addRole({ name: 'example-role', id: '12345' });
     const text = '<@&12345>';
-    const message = {
+    const message = messageFor({
       content: text,
       mentions: { users: [] },
       channel: {
@@ -738,7 +733,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     expect(bot.parseText(message)).toEqual('@example-role');
   });
@@ -747,7 +742,7 @@ describe('Bot', async () => {
     addRole({ name: 'example-role', id: '12345' });
 
     const text = '<@&12346>';
-    const message = {
+    const message = messageFor({
       content: text,
       mentions: { users: [] },
       channel: {
@@ -758,7 +753,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     // Discord displays "@deleted-role" if role doesn't exist (e.g. <@&12346>)
     expect(bot.parseText(message)).toEqual('@deleted-role');
@@ -846,7 +841,7 @@ describe('Bot', async () => {
 
     await bot.sendToDiscord('testuser', '#irc', 'test message');
     expect(sendStub).toHaveBeenCalledTimes(1);
-    const message = {
+    const message = messageFor({
       content: 'test message',
       mentions: { users: [] },
       channel: {
@@ -857,7 +852,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     bot.sendToIRC(message);
     expect(sendStub).toHaveBeenCalledTimes(1);
@@ -894,7 +889,7 @@ describe('Bot', async () => {
 
     await bot.sendToDiscord('testuser', '#irc', 'test message');
     expect(sendStub).toHaveBeenCalledTimes(1);
-    const message = {
+    const message = messageFor({
       content: 'test message',
       mentions: { users: [] },
       channel: {
@@ -905,7 +900,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     bot.sendToIRC(message);
     expect(sendStub).toHaveBeenCalledTimes(1);
@@ -957,7 +952,7 @@ describe('Bot', async () => {
       ircText: '<{$nickname}> {$discordChannel} => {$ircChannel}: {$text}',
     };
     await setCustomBot({ ...configMsgFormatDefault, format });
-    const message = {
+    const message = messageFor({
       content: 'test message',
       mentions: { users: [] },
       channel: {
@@ -968,7 +963,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
     const expected = '<testauthor> #discord => #irc: test message';
 
     bot.sendToIRC(message);
@@ -983,7 +978,7 @@ describe('Bot', async () => {
     await setCustomBot({ ...configMsgFormatDefault, format });
 
     const text = '!testcmd';
-    const message = {
+    const message = messageFor({
       content: text,
       mentions: { users: [] },
       channel: {
@@ -994,7 +989,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
     const expected = 'testauthor from #discord sent command to #irc:';
 
     bot.sendToIRC(message);
@@ -1010,7 +1005,7 @@ describe('Bot', async () => {
     await setCustomBot({ ...configMsgFormatDefault, format });
 
     const attachmentUrl = 'https://image/url.jpg';
-    const message = {
+    const message = messageFor({
       content: '',
       mentions: { users: [] },
       attachments: createAttachments(attachmentUrl),
@@ -1022,7 +1017,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     bot.sendToIRC(message);
     const expected = `<otherauthor> #discord => #irc, attachment: ${attachmentUrl}`;
@@ -1034,7 +1029,7 @@ describe('Bot', async () => {
     await setCustomBot({ ...configMsgFormatDefault, format });
 
     const text = '!testcmd';
-    const message = {
+    const message = messageFor({
       content: text,
       mentions: { users: [] },
       channel: {
@@ -1045,7 +1040,7 @@ describe('Bot', async () => {
         id: 'not bot id',
       },
       guild: guild,
-    };
+    });
 
     bot.sendToIRC(message);
     expect(sayMock).toHaveBeenCalledOnce();
@@ -1288,7 +1283,7 @@ describe('Bot', async () => {
   });
 
   it('should not send messages to IRC if Discord user is ignored', async () => {
-    const message = {
+    const message = messageFor({
       content: 'text',
       mentions: { users: [] },
       channel: {
@@ -1299,14 +1294,14 @@ describe('Bot', async () => {
         id: 'some id',
       },
       guild: guild,
-    };
+    });
 
     bot.sendToIRC(message);
     expect(sayMock).not.toHaveBeenCalled();
   });
 
   it('should not send messages to IRC if Discord user is ignored by id', async () => {
-    const message = {
+    const message = messageFor({
       content: 'text',
       mentions: { users: [] },
       channel: {
@@ -1317,9 +1312,40 @@ describe('Bot', async () => {
         id: '4499',
       },
       guild: guild,
-    };
+    });
 
     bot.sendToIRC(message);
     expect(sayMock).not.toHaveBeenCalled();
   });
 });
+
+const createAttachments = (url) => {
+  const attachments = new discord.Collection();
+  attachments.set(1, { url });
+  return attachments;
+};
+
+interface SimpleUser {
+  id: string | number;
+  username: string;
+}
+
+interface SimpleMessage {
+  content?: string;
+  mentions?: {
+    users: Array<SimpleUser>;
+  };
+  attachments?: ReturnType<typeof createAttachments>;
+  channel?: {
+    [TEST_HACK_CHANNEL]?: true;
+    id?: string | number;
+    name: string;
+  };
+  author?: SimpleUser;
+  guild?: unknown;
+}
+
+function messageFor(v: SimpleMessage): discord.Message {
+  if (v.channel) v.channel[TEST_HACK_CHANNEL] = true;
+  return v as unknown as discord.Message;
+}

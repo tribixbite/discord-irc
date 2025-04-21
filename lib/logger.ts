@@ -1,7 +1,7 @@
 import winston, { format } from 'winston';
 import { inspect } from 'util';
 
-function simpleInspect(value) {
+function simpleInspect(value: unknown) {
   if (typeof value === 'string') return value;
   return inspect(value, { depth: null });
 }

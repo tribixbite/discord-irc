@@ -1,8 +1,8 @@
 import ircFormatting from 'irc-formatting';
-import SimpleMarkdown from 'simple-markdown';
+import SimpleMarkdown, { SingleASTNode } from 'simple-markdown';
 import colors from 'irc-colors';
 
-function mdNodeToIRC(node) {
+function mdNodeToIRC(node: SingleASTNode): string {
   let { content } = node;
   if (Array.isArray(content)) content = content.map(mdNodeToIRC).join('');
   switch (node.type) {
@@ -17,12 +17,12 @@ function mdNodeToIRC(node) {
   }
 }
 
-export function formatFromDiscordToIRC(text) {
+export function formatFromDiscordToIRC(text: string): string {
   const markdownAST = SimpleMarkdown.defaultInlineParse(text);
   return markdownAST.map(mdNodeToIRC).join('');
 }
 
-export function formatFromIRCToDiscord(text) {
+export function formatFromIRCToDiscord(text: string): string {
   const blocks = ircFormatting.parse(text).map((block) => ({
     // Consider reverse as italic, some IRC clients use that
     ...block,
