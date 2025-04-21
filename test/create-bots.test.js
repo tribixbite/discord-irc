@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/unbound-method */
+
 import { afterEach, beforeEach, describe, it, vi, expect } from 'vitest';
 import Bot from '../lib/bot';
 import index from '../lib/index';

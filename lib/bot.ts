@@ -4,7 +4,6 @@ import discord, {
   AnyChannel,
   BaseGuildTextChannel,
   Intents,
-  NewsChannel,
   TextChannel,
   WebhookClient,
 } from 'discord.js';

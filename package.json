@@ -9,8 +9,8 @@
     "discord-irc",
     "reactiflux"
   ],
-  "main": "dist/index.js",
-  "bin": "dist/index.js",
+  "main": "dist/lib/index.js",
+  "bin": "dist/lib/cli.js",
   "repository": {
     "type": "git",
     "url": "git@github.com:FauxFaux/discord-irc.git"
@@ -23,7 +23,7 @@
     "build": "tsc",
     "format": "prettier --write '{lib,test}/**/*.?s'",
     "prepare": "npm run build",
-    "lint": "eslint . --ignore-path .gitignore",
+    "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest watch",
     "coverage": "vitest run --coverage"
@@ -41,15 +41,16 @@
     "winston": "^3.3.3"
   },
   "devDependencies": {
+    "@eslint/js": "^9",
     "@tsconfig/node22": "^22.0.1",
     "@types/lodash": "^4.14.182",
     "@types/node": "^22",
-    "@typescript-eslint/eslint-plugin": "^5.33.0",
-    "eslint": "^8.19.0",
-    "eslint-config-airbnb-base": "^15.0.0",
-    "eslint-config-prettier": "^8.5.0",
+    "@vitest/eslint-plugin": "^1",
+    "eslint": "^9",
+    "globals": "^14",
     "prettier": "~3.5",
     "typescript": "~5.8",
+    "typescript-eslint": "^8",
     "vitest": "^3"
   }
 }

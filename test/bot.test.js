@@ -599,8 +599,10 @@ describe('Bot', function () {
     };
 
     bot.sendToIRC(message);
-    expect(ClientStub.prototype.say
-      .mock.calls[0]).toEqual(['#irc', 'Command sent from Discord by test:']);
+    expect(ClientStub.prototype.say.mock.calls[0]).toEqual([
+      '#irc',
+      'Command sent from Discord by test:',
+    ]);
     expect(ClientStub.prototype.say.mock.calls[1]).toEqual(['#irc', text]);
   });
 
@@ -621,8 +623,10 @@ describe('Bot', function () {
     };
 
     bot.sendToIRC(message);
-    expect(ClientStub.prototype.say
-      .mock.calls[0]).toEqual(['#irc', 'Command sent from Discord by test:']);
+    expect(ClientStub.prototype.say.mock.calls[0]).toEqual([
+      '#irc',
+      'Command sent from Discord by test:',
+    ]);
     expect(ClientStub.prototype.say.mock.calls[1]).toEqual(['#irc', text]);
   });
 
@@ -631,8 +635,9 @@ describe('Bot', function () {
     const text = '!command';
 
     bot.sendToDiscord(username, '#irc', text);
-    expect(sendStub
-      .mock.calls[0]).toEqual(['Command sent from IRC by ircuser:']);
+    expect(sendStub.mock.calls[0]).toEqual([
+      'Command sent from IRC by ircuser:',
+    ]);
     expect(sendStub.mock.calls[1]).toEqual([text]);
   });
 
@@ -986,8 +991,7 @@ describe('Bot', function () {
     const expected = 'testauthor from #discord sent command to #irc:';
 
     bot.sendToIRC(message);
-    expect(ClientStub.prototype.say
-      .mock.calls[0]).toEqual(['#irc', expected]);
+    expect(ClientStub.prototype.say.mock.calls[0]).toEqual(['#irc', expected]);
     expect(ClientStub.prototype.say.mock.calls[1]).toEqual(['#irc', text]);
   });
 
@@ -1037,7 +1041,7 @@ describe('Bot', function () {
     };
 
     bot.sendToIRC(message);
-    expect(ClientStub.prototype.say).toHaveBeenCalledOnce;
+    expect(ClientStub.prototype.say).toHaveBeenCalledOnce();
     expect(ClientStub.prototype.say.mock.calls[0]).toEqual(['#irc', text]);
 
     const username = 'test';
@@ -1157,27 +1161,27 @@ describe('Bot', function () {
       });
 
       it("should match a user's username", function () {
-        expect(bot
-          .getDiscordAvatar('Nick', '#irc'))
-          .toEqual('/avatars/123/avatarURL.png?size=128');
+        expect(bot.getDiscordAvatar('Nick', '#irc')).toEqual(
+          '/avatars/123/avatarURL.png?size=128',
+        );
       });
 
       it("should match a user's username case insensitively", function () {
-        expect(bot
-          .getDiscordAvatar('nick', '#irc'))
-          .toEqual('/avatars/123/avatarURL.png?size=128');
+        expect(bot.getDiscordAvatar('nick', '#irc')).toEqual(
+          '/avatars/123/avatarURL.png?size=128',
+        );
       });
 
       it("should match a user's nickname", function () {
-        expect(bot
-          .getDiscordAvatar('Different', '#irc'))
-          .toEqual('/avatars/123/avatarURL.png?size=128');
+        expect(bot.getDiscordAvatar('Different', '#irc')).toEqual(
+          '/avatars/123/avatarURL.png?size=128',
+        );
       });
 
       it("should match a user's nickname case insensitively", function () {
-        expect(bot
-          .getDiscordAvatar('different', '#irc'))
-          .toEqual('/avatars/123/avatarURL.png?size=128');
+        expect(bot.getDiscordAvatar('different', '#irc')).toEqual(
+          '/avatars/123/avatarURL.png?size=128',
+        );
       });
 
       it("should only return matching users' avatars", function () {
@@ -1199,9 +1203,9 @@ describe('Bot', function () {
         };
         const memberObj = {};
         addUser(userObj, memberObj);
-        expect(bot
-          .getDiscordAvatar('nickless', '#irc'))
-          .toEqual('/avatars/124/nickless-avatar.png?size=128');
+        expect(bot.getDiscordAvatar('nickless', '#irc')).toEqual(
+          '/avatars/124/nickless-avatar.png?size=128',
+        );
       });
 
       it('should handle users without avatars', function () {
@@ -1225,33 +1229,37 @@ describe('Bot', function () {
       });
 
       it("should use a matching user's avatar", function () {
-        expect(bot
-          .getDiscordAvatar('Nick', '#irc'))
-          .toEqual('/avatars/123/avatarURL.png?size=128');
-        expect(bot
-          .getDiscordAvatar('nick', '#irc'))
-          .toEqual('/avatars/123/avatarURL.png?size=128');
-        expect(bot
-          .getDiscordAvatar('Different', '#irc'))
-          .toEqual('/avatars/123/avatarURL.png?size=128');
-        expect(bot
-          .getDiscordAvatar('different', '#irc'))
-          .toEqual('/avatars/123/avatarURL.png?size=128');
+        expect(bot.getDiscordAvatar('Nick', '#irc')).toEqual(
+          '/avatars/123/avatarURL.png?size=128',
+        );
+        expect(bot.getDiscordAvatar('nick', '#irc')).toEqual(
+          '/avatars/123/avatarURL.png?size=128',
+        );
+        expect(bot.getDiscordAvatar('Different', '#irc')).toEqual(
+          '/avatars/123/avatarURL.png?size=128',
+        );
+        expect(bot.getDiscordAvatar('different', '#irc')).toEqual(
+          '/avatars/123/avatarURL.png?size=128',
+        );
       });
 
       it('should use fallback without matching user', function () {
-        expect(bot.getDiscordAvatar('other', '#irc')).toEqual('avatarFrom/other');
+        expect(bot.getDiscordAvatar('other', '#irc')).toEqual(
+          'avatarFrom/other',
+        );
       });
 
       it('should use fallback when there are multiple matches', function () {
         setupCommonPair(this);
-        expect(bot
-          .getDiscordAvatar('diffUser', '#irc'))
-          .toEqual('/avatars/125/avatarURL.png?size=128');
-        expect(bot
-          .getDiscordAvatar('diffNick', '#irc'))
-          .toEqual('/avatars/124/avatarURL.png?size=128');
-        expect(bot.getDiscordAvatar('common', '#irc')).toEqual('avatarFrom/common');
+        expect(bot.getDiscordAvatar('diffUser', '#irc')).toEqual(
+          '/avatars/125/avatarURL.png?size=128',
+        );
+        expect(bot.getDiscordAvatar('diffNick', '#irc')).toEqual(
+          '/avatars/124/avatarURL.png?size=128',
+        );
+        expect(bot.getDiscordAvatar('common', '#irc')).toEqual(
+          'avatarFrom/common',
+        );
       });
 
       it('should use fallback for users without avatars', function () {

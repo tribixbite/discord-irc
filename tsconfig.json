@@ -4,10 +4,10 @@
     "outDir": "dist",
 
     "noImplicitAny": false,
-
+    "allowJs": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
-    "isolatedModules": true,
+    "isolatedModules": true
   },
-  "include": ["./lib/**/*"]
+  "include": ["./lib/**/*", "./test/**/*"],
 }

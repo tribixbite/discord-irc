@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/unbound-method */
 import { afterEach, beforeEach, describe, it, vi, expect } from 'vitest';
 import irc from 'irc-upd';
 import discord from 'discord.js';
