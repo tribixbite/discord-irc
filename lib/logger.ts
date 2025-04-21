@@ -15,7 +15,7 @@ function formatter(info) {
   return `${info.timestamp} ${info.level}:${padding} ${info.message}${stringifiedRest}`;
 }
 
-const logger = winston.createLogger({
+export const logger = winston.createLogger({
   transports: [new winston.transports.Console()],
   level: process.env.NODE_ENV === 'development' ? 'debug' : 'info',
   format: format.combine(
@@ -24,5 +24,3 @@ const logger = winston.createLogger({
     format.printf(formatter),
   ),
 });
-
-export default logger;

@@ -25,7 +25,6 @@ function readJSONConfig(filePath) {
 
 function run() {
   program
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     .version(require('../package.json').version ?? 'git')
     .option(
       '-c, --config <path>',

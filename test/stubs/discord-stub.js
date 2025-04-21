@@ -1,6 +1,5 @@
-/* eslint-disable class-methods-use-this */
+import { vi } from 'vitest';
 import events from 'events';
-import sinon from 'sinon';
 import discord, { Options } from 'discord.js';
 
 export default function createDiscordStub(sendStub) {
@@ -80,7 +79,7 @@ export default function createDiscordStub(sendStub) {
     }
 
     login() {
-      return sinon.stub();
+      return vi.fn();
     }
   };
 }

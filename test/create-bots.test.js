@@ -1,7 +1,4 @@
-/* eslint-disable no-unused-expressions, prefer-arrow-callback */
-import chai from 'chai';
-import sinon from 'sinon';
-import sinonChai from 'sinon-chai';
+import { afterEach, beforeEach, describe, it, vi, expect } from 'vitest';
 import Bot from '../lib/bot';
 import index from '../lib/index';
 import testConfig from './fixtures/test-config.json';
@@ -10,33 +7,25 @@ import badConfig from './fixtures/bad-config.json';
 import stringConfig from './fixtures/string-config.json';
 import { createBots } from '../lib/helpers';
 
-chai.should();
-chai.use(sinonChai);
-
 describe('Create Bots', function () {
-  const sandbox = sinon.createSandbox({
-    useFakeTimers: false,
-    useFakeServer: false,
-  });
-
   beforeEach(function () {
-    this.connectStub = sandbox.stub(Bot.prototype, 'connect');
+    Bot.prototype.connect = vi.fn();
   });
 
   afterEach(function () {
-    sandbox.restore();
+    vi.resetAllMocks();
   });
 
   it('should work when given an array of configs', function () {
     const bots = createBots(testConfig);
-    bots.length.should.equal(2);
-    this.connectStub.should.have.been.called;
+    expect(bots.length).toEqual(2);
+    expect(Bot.prototype.connect).toHaveBeenCalled();
   });
 
   it('should work when given an object as a config file', function () {
     const bots = createBots(singleTestConfig);
-    bots.length.should.equal(1);
-    this.connectStub.should.have.been.called;
+    expect(bots.length).toEqual(1);
+    expect(Bot.prototype.connect).toHaveBeenCalled();
   });
 
   it('should throw a configuration error if any fields are missing', function () {
@@ -44,7 +33,7 @@ describe('Create Bots', function () {
       createBots(badConfig);
     }
 
-    wrap.should.throw('Missing configuration field nickname');
+    expect(wrap).toThrow('Missing configuration field nickname');
   });
 
   it('should throw if a configuration file is neither an object or an array', function () {
@@ -52,12 +41,12 @@ describe('Create Bots', function () {
       createBots(stringConfig);
     }
 
-    wrap.should.throw('Invalid configuration file given');
+    expect(wrap).toThrow('Invalid configuration file given');
   });
 
   it("should be possible to run it through require('discord-irc')", function () {
     const bots = index(singleTestConfig);
-    bots.length.should.equal(1);
-    this.connectStub.should.have.been.called;
+    expect(bots.length).toEqual(1);
+    expect(Bot.prototype.connect).toHaveBeenCalled();
   });
 });

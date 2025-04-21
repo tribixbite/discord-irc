@@ -8,7 +8,7 @@ import discord, {
   TextChannel,
   WebhookClient,
 } from 'discord.js';
-import logger from './logger';
+import { logger } from './logger';
 import { ConfigurationError } from './errors';
 import { validateChannelMapping } from './validators';
 import { formatFromDiscordToIRC, formatFromIRCToDiscord } from './formatting';
