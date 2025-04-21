@@ -72,11 +72,11 @@ class Bot {
   ircClient;
 
   constructor(options: Record<string, unknown>) {
-    REQUIRED_FIELDS.forEach((field) => {
+    for (const field of REQUIRED_FIELDS) {
       if (!options[field]) {
         throw new ConfigurationError(`Missing configuration field ${field}`);
       }
-    });
+    }
 
     validateChannelMapping(options.channelMapping);
 
@@ -204,7 +204,9 @@ class Bot {
   disconnect() {
     this.ircClient.disconnect();
     this.discord.destroy();
-    Object.values(this.webhooks).forEach((x) => x.client.destroy());
+    for (const x of Object.values(this.webhooks)) {
+      x.client.destroy();
+    }
   }
 
   attachListeners() {
@@ -215,9 +217,9 @@ class Bot {
     this.ircClient.on('registered', (message) => {
       logger.info('Connected to IRC');
       logger.debug('Registered event: ', message);
-      this.autoSendCommands.forEach((element) => {
+      for (const element of this.autoSendCommands) {
         this.ircClient.send(...element);
-      });
+      }
     });
 
     this.ircClient.on('error', (error) => {
@@ -369,24 +371,24 @@ class Bot {
     const usedFields = ['title', 'description', 'fields', 'image', 'footer'];
     let embed = '';
     if (message.embeds?.length) {
-      usedFields.forEach((key) => {
+      for (const key of usedFields) {
         if (message.embeds[0][key]) {
           if (key === 'fields') {
-            message.embeds[0][key].forEach((field) => {
+            for (const field of message.embeds[0][key]) {
               let { value } = field;
               const discId = value.match(/<@[0-9]+>/g);
               if (discId) {
-                discId.forEach((id) => {
+                for (const id of discId) {
                   const dId = id.substring(2, id.length - 1);
                   const name = (this.discord.users as any).find(
                     'id',
                     dId,
                   ).username;
                   value = value.replace(id, name);
-                });
+                }
               }
               embed += `\u0002${field.name}\u0002\n${value}\n`;
-            });
+            }
           } else if (key === 'image') {
             embed += `${message.embeds[0][key].url}\n`;
           } else if (key === 'footer') {
@@ -397,7 +399,7 @@ class Bot {
             embed += `${message.embeds[0][key]}\n`;
           }
         }
-      });
+      }
     }
     let text = message.mentions.users.reduce((content, mention) => {
       const displayName = Bot.getDiscordNicknameOnServer(
@@ -533,7 +535,7 @@ class Bot {
           text = text.replace('\r\n', '\n').replace('\r', '\n');
           const sentences = text.split('\n');
 
-          sentences.forEach((orig) => {
+          for (const orig of sentences) {
             let sentence = formatFromDiscordToIRC(orig);
             if (sentence) {
               patternMap.text = sentence;
@@ -541,10 +543,11 @@ class Bot {
               logger.debug('Sending message to IRC', ircChannel, sentence);
               this.ircClient.say(ircChannel, sentence);
             }
-          });
+          }
         }
 
         if (message.attachments && message.attachments.size) {
+          // attachments are a discord.Collection, not a JS object
           message.attachments.forEach((a) => {
             patternMap.attachmentURL = a.url;
             const urlMessage = Bot.substitutePattern(
