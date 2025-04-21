@@ -9,17 +9,14 @@
     "discord-irc",
     "reactiflux"
   ],
-  "engines": {
-    "node": ">=16.0.0"
-  },
   "main": "dist/index.js",
   "bin": "dist/index.js",
   "repository": {
     "type": "git",
-    "url": "git@github.com:reactiflux/discord-irc.git"
+    "url": "git@github.com:FauxFaux/discord-irc.git"
   },
   "bugs": {
-    "url": "https://github.com/reactiflux/discord-irc/issues"
+    "url": "https://github.com/FauxFaux/discord-irc/issues"
   },
   "scripts": {
     "start": "node dist/index.js",
@@ -28,9 +25,6 @@
     "prepare": "npm run build",
     "lint": "eslint . --ignore-path .gitignore",
     "test": "mocha --require ./test/babel-register.js -- 'test/*.test.?s'"
-  },
-  "author": {
-    "name": "Reactiflux"
   },
   "license": "MIT",
   "dependencies": {

@@ -1,16 +1,11 @@
-[![Coverage Status](https://coveralls.io/repos/github/reactiflux/discord-irc/badge.svg?branch=main)](https://coveralls.io/github/reactiflux/discord-irc?branch=main)
-
 > Connects [Discord](https://discord.com/) and [IRC](https://www.ietf.org/rfc/rfc1459.txt) channels by sending messages back and forth.
-
-## Example
-![discord-irc](http://i.imgur.com/oI6iCrf.gif)
 
 ## Installation and usage
 **Note**: discord-irc requires Node.js version 12 or newer, as it depends on [discord.js](https://github.com/hydrabolt/discord.js).
 Future versions may require newer Node.js versions, though we should support active releases.
 
 Before you can run discord-irc you need to create a configuration file by
-following the instructions [here](https://github.com/reactiflux/discord-irc#configuration).
+following the instructions below.
 After you've done that you can replace `/path/to/config.json` in the commands
 below with the path to your newly created configuration file - or just `config.json` if it's
 in the same directory as the one you're starting the bot from.
@@ -30,31 +25,6 @@ $ npm install
 $ npm run build
 $ npm start -- --config /path/to/config.json # Note the extra double dash
 ```
-
-It can also be used as a module:
-```js
-import discordIRC from 'discord-irc';
-import config from './config.json';
-discordIRC(config);
-```
-
-## Docker
-As an alternative to running discord-irc directly on your machine, we provide a [Docker container image](https://hub.docker.com/r/discordirc/discord-irc).
-After creating a configuration file, you can fetch the image from Docker Hub and run it with the following command:
-
-```bash
-docker run -v /path/to/config:/config/config.json discordirc/discord-irc
-```
-
-If you've checked out the repository already, you can build the Docker image locally and run that instead:
-
-```bash
-docker build -t discord-irc .
-docker run -v /path/to/config:/config/config.json discord-irc
-```
-
-Note that the path to the config file on the host (`/path/to/config`) _must_ be a valid absolute path to a config file.
-Otherwise, you may get the error "illegal operation on a directory".
 
 ## Configuration
 First you need to create a Discord bot user, which you can do by following the instructions [here](https://github.com/reactiflux/discord-irc/wiki/Creating-a-discord-bot-&-getting-a-token).
@@ -145,19 +115,4 @@ discord-irc's config as follows:
   "webhooks": {
     "#discord-channel": "https://discord.com/api/webhooks/id/token"
   }
-```
-
-### Encodings
-If you encounter trouble with some characters being corrupted from some clients (particularly umlauted characters, such as `ä` or `ö`), try installing the optional dependencies `iconv` and `node-icu-charset-detector`.
-The bot will produce a warning when started if the IRC library is unable to convert between encodings.
-
-Further information can be found in [the installation section of irc-upd](https://github.com/Throne3d/node-irc#character-set-detection).
-
-
-## Developer notes
-
-```bash
-npm run format
-npm run lint
-npm test
 ```
