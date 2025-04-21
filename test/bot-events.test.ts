@@ -8,6 +8,7 @@ import createDiscordStub from './stubs/discord-stub';
 import createWebhookStub from './stubs/webhook-stub';
 import ClientStub from './stubs/irc-client-stub';
 import config from './fixtures/single-test-config.json';
+import { sleep } from '../lib/ts';
 
 vi.mock('../lib/logger', () => ({
   logger: {
@@ -29,7 +30,7 @@ describe('Bot Events', () => {
   };
 
   let sendStub;
-  let bot;
+  let bot: Bot;
 
   beforeEach(async () => {
     sendStub = vi.fn();
@@ -48,7 +49,7 @@ describe('Bot Events', () => {
   });
 
   it('should log on discord ready event', () => {
-    bot.discord.emit('ready');
+    bot.discord.emit('ready' as never);
     expect(logger.info).toHaveBeenCalledWith('Connected to Discord');
   });
 
@@ -86,7 +87,7 @@ describe('Bot Events', () => {
 
   it('should warn log on warn events from discord', () => {
     const discordError = new Error('discord');
-    bot.discord.emit('warn', discordError);
+    bot.discord.emit('warn' as never, discordError);
     // @ts-expect-error potentially invalid overloads on logger
     const [message, error] = vi.mocked(logger.warn).mock.calls[0];
     expect(message).toEqual('Received warn event from Discord');
@@ -98,7 +99,7 @@ describe('Bot Events', () => {
       type: 'message',
     };
 
-    bot.discord.emit('message', message);
+    bot.discord.emit('message' as never, message);
     expect(bot.sendToIRC).toHaveBeenCalledWith(message);
   });
 
@@ -295,6 +296,8 @@ describe('Bot Events', () => {
     const text = `*${nick}* has quit (${reason})`;
     // send quit message for all channels on server, as the node-irc library does
     bot.ircClient.emit('quit', nick, reason, [channel1, channel2, channel3]);
+    // TODO: async handling
+    await sleep(15);
     expect(bot.sendExactToDiscord).toHaveBeenCalledTimes(2);
     const mock = vi.mocked(bot.sendExactToDiscord).mock;
     expect(mock.calls[0]).toEqual([channel1, text]);

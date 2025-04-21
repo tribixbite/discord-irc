@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/require-await */
-/* eslint-disable @typescript-eslint/unbound-method */
 
 import { it, afterEach, beforeEach, describe, expect, vi } from 'vitest';
 import irc from 'irc-upd';
@@ -25,7 +24,7 @@ describe('Bot', async () => {
   let sendStub;
   let sendWebhookMessageStub;
 
-  let bot;
+  let bot: Bot;
   let guild;
 
   const setCustomBot = async (conf) => {
@@ -99,7 +98,7 @@ describe('Bot', async () => {
     const username = 'testuser';
     const text = 'test message';
     const formatted = `**<${username}>** ${text}`;
-    bot.sendToDiscord(username, '#irc', text);
+    await bot.sendToDiscord(username, '#irc', text);
     expect(sendStub).toHaveBeenCalledWith(formatted);
   });
 
@@ -107,17 +106,17 @@ describe('Bot', async () => {
     const username = 'testuser';
     const text = 'test message';
     const formatted = `**<${username}>** ${text}`;
-    bot.sendToDiscord(username, '#IRC', text);
+    await bot.sendToDiscord(username, '#IRC', text);
     expect(sendStub).toHaveBeenCalledWith(formatted);
   });
 
   it("should not send messages to discord if the channel isn't in the channel mapping", async () => {
-    bot.sendToDiscord('user', '#no-irc', 'message');
+    await bot.sendToDiscord('user', '#no-irc', 'message');
     expect(sendStub).not.toHaveBeenCalled();
   });
 
   it("should not send messages to discord if it isn't in the channel", async () => {
-    bot.sendToDiscord('user', '#otherirc', 'message');
+    await bot.sendToDiscord('user', '#otherirc', 'message');
     expect(sendStub).not.toHaveBeenCalled();
   });
 
@@ -125,22 +124,22 @@ describe('Bot', async () => {
     const username = 'testuser';
     const text = 'test message';
     const formatted = `**<${username}>** ${text}`;
-    bot.sendToDiscord(username, '#channelforid', text);
+    await bot.sendToDiscord(username, '#channelforid', text);
     expect(sendStub).toHaveBeenCalledWith(formatted);
   });
 
   it("should not send special messages to discord if the channel isn't in the channel mapping", async () => {
-    bot.sendExactToDiscord('#no-irc', 'message');
+    await bot.sendExactToDiscord('#no-irc', 'message');
     expect(sendStub).not.toHaveBeenCalled();
   });
 
   it("should not send special messages to discord if it isn't in the channel", async () => {
-    bot.sendExactToDiscord('#otherirc', 'message');
+    await bot.sendExactToDiscord('#otherirc', 'message');
     expect(sendStub).not.toHaveBeenCalled();
   });
 
   it('should send special messages to discord', async () => {
-    bot.sendExactToDiscord('#irc', 'message');
+    await bot.sendExactToDiscord('#irc', 'message');
     expect(sendStub).toHaveBeenCalledWith('message');
     expect(logger.debug).toHaveBeenCalledWith(
       'Sending special message to Discord',
@@ -333,7 +332,7 @@ describe('Bot', async () => {
     const message = {
       author: {
         username: 'bot',
-        id: bot.discord.user.id,
+        id: bot.discord.user!.id,
       },
       guild: guild,
     };
@@ -486,7 +485,7 @@ describe('Bot', async () => {
     const text = 'Hello, @testuser!';
     const expected = `**<${username}>** Hello, <@${testUser.id}>!`;
 
-    bot.sendToDiscord(username, '#irc', text);
+    await bot.sendToDiscord(username, '#irc', text);
     expect(sendStub).not.toHaveBeenCalledWith(expected);
   });
 
@@ -497,7 +496,7 @@ describe('Bot', async () => {
     const text = 'testuser: hello!';
     const expected = `**<${username}>** <@${testUser.id}> hello!`;
 
-    bot.sendToDiscord(username, '#irc', text);
+    await bot.sendToDiscord(username, '#irc', text);
     expect(sendStub).not.toHaveBeenCalledWith(expected);
   });
 
@@ -508,7 +507,7 @@ describe('Bot', async () => {
     const text = 'testuser, hello!';
     const expected = `**<${username}>** <@${testUser.id}> hello!`;
 
-    bot.sendToDiscord(username, '#irc', text);
+    await bot.sendToDiscord(username, '#irc', text);
     expect(sendStub).not.toHaveBeenCalledWith(expected);
   });
 
@@ -519,7 +518,7 @@ describe('Bot', async () => {
     const text = 'Hi there testuser, how goes?';
     const expected = `**<${username}>** Hi there testuser, how goes?`;
 
-    bot.sendToDiscord(username, '#irc', text);
+    await bot.sendToDiscord(username, '#irc', text);
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
@@ -528,7 +527,7 @@ describe('Bot', async () => {
     const text = 'See you there @5pm';
     const expected = `**<${username}>** See you there @5pm`;
 
-    bot.sendToDiscord(username, '#irc', text);
+    await bot.sendToDiscord(username, '#irc', text);
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
@@ -537,7 +536,7 @@ describe('Bot', async () => {
     const text = 'Agreed, see you then.';
     const expected = `**<${username}>** Agreed, see you then.`;
 
-    bot.sendToDiscord(username, '#irc', text);
+    await bot.sendToDiscord(username, '#irc', text);
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
@@ -552,7 +551,7 @@ describe('Bot', async () => {
       `**<${username}>** Hello, <@${testUser.id}> and <@${anotherUser.id}>,` +
       ' was our meeting scheduled @5pm?';
 
-    bot.sendToDiscord(username, '#irc', text);
+    await bot.sendToDiscord(username, '#irc', text);
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
@@ -563,13 +562,14 @@ describe('Bot', async () => {
     const text =
       "Here is a broken :emojitest:, a working :testemoji: and another :emoji: that won't parse";
     const expected = `**<${username}>** Here is a broken :emojitest:, a working <:testemoji:987> and another :emoji: that won't parse`;
-    bot.sendToDiscord(username, '#irc', text);
+    await bot.sendToDiscord(username, '#irc', text);
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
   it('should convert channel mentions from IRC', async () => {
     guild.addTextChannel({ id: '1235', name: 'testchannel' });
     guild.addTextChannel({ id: '1236', name: 'channel-compliqué' });
+    // @ts-expect-error confusion between stub and real at types
     const otherGuild = bot.discord.createGuildStub({ id: '2' });
     otherGuild.addTextChannel({ id: '1237', name: 'foreignchannel' });
 
@@ -577,7 +577,7 @@ describe('Bot', async () => {
     const text =
       "Here is a broken #channelname, a working #testchannel, #channel-compliqué, an irregular case #TestChannel and another guild's #foreignchannel";
     const expected = `**<${username}>** Here is a broken #channelname, a working <#1235>, <#1236>, an irregular case <#1235> and another guild's #foreignchannel`;
-    bot.sendToDiscord(username, '#irc', text);
+    await bot.sendToDiscord(username, '#irc', text);
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
@@ -641,7 +641,7 @@ describe('Bot', async () => {
     const username = 'ircuser';
     const text = '!command';
 
-    bot.sendToDiscord(username, '#irc', text);
+    await bot.sendToDiscord(username, '#irc', text);
     expect(sendStub.mock.calls[0]).toEqual([
       'Command sent from IRC by ircuser:',
     ]);
@@ -684,7 +684,7 @@ describe('Bot', async () => {
     const text = 'Hello, @somenickname!';
     const expected = `**<${username}>** Hello, ${testUser}!`;
 
-    bot.sendToDiscord(username, '#irc', text);
+    await bot.sendToDiscord(username, '#irc', text);
     expect(sendStub).not.toHaveBeenCalledWith(expected);
   });
 
@@ -699,7 +699,7 @@ describe('Bot', async () => {
     const text = 'Hello, @testuser!';
     const expected = `**<${username}>** Hello, ${testUser}!`;
 
-    bot.sendToDiscord(username, '#irc', text);
+    await bot.sendToDiscord(username, '#irc', text);
     expect(sendStub).not.toHaveBeenCalledWith(expected);
   });
 
@@ -720,7 +720,7 @@ describe('Bot', async () => {
     const text = 'hello @user#9876 and @user#5555 and @fakeuser#1234';
     const expected = `**<${username}>** hello ${user1} and ${user2} and @fakeuser#1234`;
 
-    bot.sendToDiscord(username, '#irc', text);
+    await bot.sendToDiscord(username, '#irc', text);
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
@@ -775,7 +775,7 @@ describe('Bot', async () => {
     const text = 'Hello, @example-role!';
     const expected = `**<${username}>** Hello, <@&${testRole.id}>!`;
 
-    bot.sendToDiscord(username, '#irc', text);
+    await bot.sendToDiscord(username, '#irc', text);
     expect(sendStub).not.toHaveBeenCalledWith(expected);
   });
 
@@ -786,7 +786,7 @@ describe('Bot', async () => {
     const text = 'Hello, @example-role!';
     const expected = `**<${username}>** Hello, @example-role!`;
 
-    bot.sendToDiscord(username, '#irc', text);
+    await bot.sendToDiscord(username, '#irc', text);
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
@@ -813,7 +813,7 @@ describe('Bot', async () => {
       'hello @User, @user, @userTest, @userTEST, @userTestRole and @usertestrole';
     const expected = `**<${username}>** hello ${user}, ${user}, ${nickUser}, ${nickUserCase}, ${role} and ${role}`;
 
-    bot.sendToDiscord(username, '#irc', text);
+    await bot.sendToDiscord(username, '#irc', text);
     expect(sendStub).not.toHaveBeenCalledWith(expected);
   });
 
@@ -837,14 +837,14 @@ describe('Bot', async () => {
       "@user-ific @usermore, @user's friend @user-punc, @nicks and @NiCKs @roles";
     const expected = `**<${username}>** ${user}-ific ${user}more, ${user}'s friend ${longUser}, ${nickUser}s and ${nickUserCase}s ${role}s`;
 
-    bot.sendToDiscord(username, '#irc', text);
+    await bot.sendToDiscord(username, '#irc', text);
     expect(sendStub).not.toHaveBeenCalledWith(expected);
   });
 
   it('should successfully send messages with default config', async () => {
     await setCustomBot(configMsgFormatDefault);
 
-    bot.sendToDiscord('testuser', '#irc', 'test message');
+    await bot.sendToDiscord('testuser', '#irc', 'test message');
     expect(sendStub).toHaveBeenCalledTimes(1);
     const message = {
       content: 'test message',
@@ -872,7 +872,7 @@ describe('Bot', async () => {
     const username = 'testuser';
     const msg = 'test message';
     const expected = `{$unmatchedPattern} stays intact: ${username} ${msg}`;
-    bot.sendToDiscord(username, '#irc', msg);
+    await bot.sendToDiscord(username, '#irc', msg);
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
@@ -885,14 +885,14 @@ describe('Bot', async () => {
     const username = 'test';
     const msg = 'test @user <#1234>';
     const expected = `<test> #irc => #discord: ${msg}`;
-    bot.sendToDiscord(username, '#irc', msg);
+    await bot.sendToDiscord(username, '#irc', msg);
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
   it('should successfully send messages with default config 2', async () => {
     await setCustomBot(configMsgFormatDefault);
 
-    bot.sendToDiscord('testuser', '#irc', 'test message');
+    await bot.sendToDiscord('testuser', '#irc', 'test message');
     expect(sendStub).toHaveBeenCalledTimes(1);
     const message = {
       content: 'test message',
@@ -920,7 +920,7 @@ describe('Bot', async () => {
     const username = 'testuser';
     const msg = 'test message';
     const expected = `{$unmatchedPattern} stays intact: ${username} ${msg}`;
-    bot.sendToDiscord(username, '#irc', msg);
+    await bot.sendToDiscord(username, '#irc', msg);
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
@@ -933,7 +933,7 @@ describe('Bot', async () => {
     const username = 'test';
     const msg = 'test @user <#1234>';
     const expected = `<test> #irc => #discord: ${msg}`;
-    bot.sendToDiscord(username, '#irc', msg);
+    await bot.sendToDiscord(username, '#irc', msg);
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
@@ -947,7 +947,7 @@ describe('Bot', async () => {
     const username = 'test';
     const msg = '!testcmd';
     const expected = 'test from #irc sent command to #discord:';
-    bot.sendToDiscord(username, '#irc', msg);
+    await bot.sendToDiscord(username, '#irc', msg);
     expect(sendStub.mock.calls[0]).toEqual([expected]);
     expect(sendStub.mock.calls[1]).toEqual([msg]);
   });
@@ -1053,7 +1053,7 @@ describe('Bot', async () => {
 
     const username = 'test';
     const msg = '!testcmd';
-    bot.sendToDiscord(username, '#irc', msg);
+    await bot.sendToDiscord(username, '#irc', msg);
     expect(sendStub).toHaveBeenCalledTimes(1);
     expect(sendStub.mock.calls[0]).toEqual([msg]);
   });
@@ -1080,13 +1080,13 @@ describe('Bot', async () => {
     });
 
     it('should prefer webhooks to send a message', async () => {
-      bot.sendToDiscord('nick', '#irc', 'text');
+      await bot.sendToDiscord('nick', '#irc', 'text');
       expect(sendWebhookMessageStub).toHaveBeenCalled();
     });
 
     it('pads too short usernames', async () => {
       const text = 'message';
-      bot.sendToDiscord('n', '#irc', text);
+      await bot.sendToDiscord('n', '#irc', text);
       expect(sendWebhookMessageStub).toHaveBeenCalledWith(text, {
         username: 'n_',
         avatarURL: null,
@@ -1096,7 +1096,7 @@ describe('Bot', async () => {
 
     it('slices too long usernames', async () => {
       const text = 'message';
-      bot.sendToDiscord(
+      await bot.sendToDiscord(
         '1234567890123456789012345678901234567890',
         '#irc',
         text,
@@ -1114,12 +1114,13 @@ describe('Bot', async () => {
         discord.Permissions.FLAGS.VIEW_CHANNEL +
         discord.Permissions.FLAGS.SEND_MESSAGES;
       bot.discord.channels.cache
-        .get('1234')
+        .get('1234')!
+        // @ts-expect-error apparently exists but not exposed in types
         .setPermissionStub(
           bot.discord.user,
           new discord.Permissions(permission),
         );
-      bot.sendToDiscord('nick', '#irc', text);
+      await bot.sendToDiscord('nick', '#irc', text);
       expect(sendWebhookMessageStub).toHaveBeenCalledWith(text, {
         username: 'nick',
         avatarURL: null,
@@ -1134,12 +1135,13 @@ describe('Bot', async () => {
         discord.Permissions.FLAGS.SEND_MESSAGES +
         discord.Permissions.FLAGS.MENTION_EVERYONE;
       bot.discord.channels.cache
-        .get('1234')
+        .get('1234')!
+        // @ts-expect-error apparently exists but not exposed in types
         .setPermissionStub(
           bot.discord.user,
           new discord.Permissions(permission),
         );
-      bot.sendToDiscord('nick', '#irc', text);
+      await bot.sendToDiscord('nick', '#irc', text);
       expect(sendWebhookMessageStub).toHaveBeenCalledWith(text, {
         username: 'nick',
         avatarURL: null,
@@ -1281,7 +1283,7 @@ describe('Bot', async () => {
   });
 
   it('should not send messages to Discord if IRC user is ignored', async () => {
-    bot.sendToDiscord('irc_ignored_user', '#irc', 'message');
+    await bot.sendToDiscord('irc_ignored_user', '#irc', 'message');
     expect(sendStub).not.toHaveBeenCalled();
   });
 

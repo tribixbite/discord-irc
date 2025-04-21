@@ -237,21 +237,24 @@ class Bot {
       this.sendToIRC(message);
     });
 
+    // TODO: almost certainly not async safe
     this.ircClient.on('message', this.sendToDiscord.bind(this));
 
-    this.ircClient.on('notice', (author, to, text) => {
-      this.sendToDiscord(author, to, `*${text}*`);
-    });
+    // TODO: almost certainly not async safe
+    this.ircClient.on('notice', async (author, to, text) =>
+      this.sendToDiscord(author, to, `*${text}*`),
+    );
 
-    this.ircClient.on('nick', (oldNick, newNick, channels) => {
+    // TODO: almost certainly not async safe
+    this.ircClient.on('nick', async (oldNick, newNick, channels) => {
       if (!this.ircStatusNotices) return;
-      channels.forEach((channelName) => {
+      for (const channelName of channels) {
         const channel = channelName.toLowerCase();
         if (this.channelUsers[channel]) {
           if (this.channelUsers[channel].has(oldNick)) {
             this.channelUsers[channel].delete(oldNick);
             this.channelUsers[channel].add(newNick);
-            this.sendExactToDiscord(
+            await this.sendExactToDiscord(
               channel,
               `*${oldNick}* is now known as ${newNick}`,
             );
@@ -261,10 +264,11 @@ class Bot {
             `No channelUsers found for ${channel} when ${oldNick} changed.`,
           );
         }
-      });
+      }
     });
 
-    this.ircClient.on('join', (channelName, nick) => {
+    // TODO: almost certainly not async safe
+    this.ircClient.on('join', async (channelName, nick) => {
       logger.debug('Received join:', channelName, nick);
       if (!this.ircStatusNotices) return;
       if (nick === this.ircClient.nick && !this.announceSelfJoin) return;
@@ -272,10 +276,14 @@ class Bot {
       // self-join is announced before names (which includes own nick)
       // so don't add nick to channelUsers
       if (nick !== this.ircClient.nick) this.channelUsers[channel].add(nick);
-      this.sendExactToDiscord(channel, `*${nick}* has joined the channel`);
+      await this.sendExactToDiscord(
+        channel,
+        `*${nick}* has joined the channel`,
+      );
     });
 
-    this.ircClient.on('part', (channelName, nick, reason) => {
+    // TODO: almost certainly not async safe
+    this.ircClient.on('part', async (channelName, nick, reason) => {
       logger.debug('Received part:', channelName, nick, reason);
       if (!this.ircStatusNotices) return;
       const channel = channelName.toLowerCase();
@@ -292,26 +300,30 @@ class Bot {
           `No channelUsers found for ${channel} when ${nick} parted.`,
         );
       }
-      this.sendExactToDiscord(
+      await this.sendExactToDiscord(
         channel,
         `*${nick}* has left the channel (${reason})`,
       );
     });
 
-    this.ircClient.on('quit', (nick, reason, channels) => {
+    // TODO: almost certainly not async safe
+    this.ircClient.on('quit', async (nick, reason, channels) => {
       logger.debug('Received quit:', nick, channels);
       if (!this.ircStatusNotices || nick === this.ircClient.nick) return;
-      channels.forEach((channelName) => {
+      for (const channelName of channels) {
         const channel = channelName.toLowerCase();
         if (!this.channelUsers[channel]) {
           logger.warn(
             `No channelUsers found for ${channel} when ${nick} quit, ignoring.`,
           );
-          return;
+          continue;
         }
-        if (!this.channelUsers[channel].delete(nick)) return;
-        this.sendExactToDiscord(channel, `*${nick}* has quit (${reason})`);
-      });
+        if (!this.channelUsers[channel].delete(nick)) continue;
+        await this.sendExactToDiscord(
+          channel,
+          `*${nick}* has quit (${reason})`,
+        );
+      }
     });
 
     this.ircClient.on('names', (channelName, nicks) => {
@@ -321,9 +333,10 @@ class Bot {
       this.channelUsers[channel] = new Set(Object.keys(nicks));
     });
 
-    this.ircClient.on('action', (author, to, text) => {
-      this.sendToDiscord(author, to, `_${text}_`);
-    });
+    // TODO: almost certainly not async safe
+    this.ircClient.on('action', async (author, to, text) =>
+      this.sendToDiscord(author, to, `_${text}_`),
+    );
 
     this.ircClient.on('invite', (channel, from) => {
       logger.debug('Received invite:', channel, from);
@@ -646,7 +659,7 @@ class Bot {
     return str1.toUpperCase().startsWith(str2.toUpperCase());
   }
 
-  sendToDiscord(author, channel, text) {
+  async sendToDiscord(author, channel, text) {
     const discordChannel = this.findDiscordChannel(channel);
     if (!discordChannel) return;
 
@@ -682,9 +695,9 @@ class Bot {
           this.formatCommandPrelude,
           patternMap,
         );
-        discordChannel.send(prelude);
+        await discordChannel.send(prelude);
       }
-      discordChannel.send(text);
+      await discordChannel.send(text);
       return;
     }
 
@@ -775,11 +788,11 @@ class Bot {
       '->',
       `#${discordChannel.name}`,
     );
-    discordChannel.send(withAuthor);
+    await discordChannel.send(withAuthor);
   }
 
   /* Sends a message to Discord exactly as it appears */
-  sendExactToDiscord(channel, text) {
+  async sendExactToDiscord(channel: string, text: string): Promise<void> {
     const discordChannel = this.findDiscordChannel(channel);
     if (!discordChannel) return;
 
@@ -790,7 +803,7 @@ class Bot {
       '->',
       `#${discordChannel.name}`,
     );
-    discordChannel.send(text);
+    await discordChannel.send(text);
   }
 }
 
