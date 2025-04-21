@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/require-await */
+
 import { it, afterEach, beforeEach, describe, expect, vi } from 'vitest';
 import irc from 'irc-upd';
 import discord from 'discord.js';
@@ -18,17 +20,17 @@ vi.mock('../lib/logger', () => ({
   },
 }));
 
-describe('Bot', function () {
+describe('Bot', async () => {
   let sendStub;
   let sendWebhookMessageStub;
 
   let bot;
   let guild;
 
-  const setCustomBot = (conf) => {
+  const setCustomBot = async (conf) => {
     bot = new Bot(conf);
     guild = bot.discord.guilds.cache.first();
-    bot.connect();
+    await bot.connect();
   };
 
   // modified variants of https://github.com/discordjs/discord.js/blob/stable/src/client/ClientDataManager.js
@@ -56,7 +58,7 @@ describe('Bot', function () {
     return emojiObj;
   };
 
-  beforeEach(function () {
+  beforeEach(async () => {
     sendStub = vi.fn();
 
     irc.Client = ClientStub;
@@ -68,10 +70,10 @@ describe('Bot', function () {
     sendWebhookMessageStub = vi.fn();
     discord.WebhookClient = createWebhookStub(sendWebhookMessageStub);
 
-    setCustomBot(config);
+    await setCustomBot(config);
   });
 
-  afterEach(function () {
+  afterEach(async () => {
     vi.restoreAllMocks();
   });
 
@@ -81,11 +83,11 @@ describe('Bot', function () {
     return attachments;
   };
 
-  it('should invert the channel mapping', function () {
+  it('should invert the channel mapping', async () => {
     expect(bot.invertedMapping['#irc']).toEqual('#discord');
   });
 
-  it('should send correctly formatted messages to discord', function () {
+  it('should send correctly formatted messages to discord', async () => {
     const username = 'testuser';
     const text = 'test message';
     const formatted = `**<${username}>** ${text}`;
@@ -93,7 +95,7 @@ describe('Bot', function () {
     expect(sendStub).toHaveBeenCalledWith(formatted);
   });
 
-  it('should lowercase channel names before sending to discord', function () {
+  it('should lowercase channel names before sending to discord', async () => {
     const username = 'testuser';
     const text = 'test message';
     const formatted = `**<${username}>** ${text}`;
@@ -101,17 +103,17 @@ describe('Bot', function () {
     expect(sendStub).toHaveBeenCalledWith(formatted);
   });
 
-  it("should not send messages to discord if the channel isn't in the channel mapping", function () {
+  it("should not send messages to discord if the channel isn't in the channel mapping", async () => {
     bot.sendToDiscord('user', '#no-irc', 'message');
     expect(sendStub).not.toHaveBeenCalled();
   });
 
-  it("should not send messages to discord if it isn't in the channel", function () {
+  it("should not send messages to discord if it isn't in the channel", async () => {
     bot.sendToDiscord('user', '#otherirc', 'message');
     expect(sendStub).not.toHaveBeenCalled();
   });
 
-  it('should send to a discord channel ID appropriately', function () {
+  it('should send to a discord channel ID appropriately', async () => {
     const username = 'testuser';
     const text = 'test message';
     const formatted = `**<${username}>** ${text}`;
@@ -119,17 +121,17 @@ describe('Bot', function () {
     expect(sendStub).toHaveBeenCalledWith(formatted);
   });
 
-  it("should not send special messages to discord if the channel isn't in the channel mapping", function () {
+  it("should not send special messages to discord if the channel isn't in the channel mapping", async () => {
     bot.sendExactToDiscord('#no-irc', 'message');
     expect(sendStub).not.toHaveBeenCalled();
   });
 
-  it("should not send special messages to discord if it isn't in the channel", function () {
+  it("should not send special messages to discord if it isn't in the channel", async () => {
     bot.sendExactToDiscord('#otherirc', 'message');
     expect(sendStub).not.toHaveBeenCalled();
   });
 
-  it('should send special messages to discord', function () {
+  it('should send special messages to discord', async () => {
     bot.sendExactToDiscord('#irc', 'message');
     expect(sendStub).toHaveBeenCalledWith('message');
     expect(logger.debug).toHaveBeenCalledWith(
@@ -141,10 +143,10 @@ describe('Bot', function () {
     );
   });
 
-  it('should not color irc messages if the option is disabled', function () {
+  it('should not color irc messages if the option is disabled', async () => {
     const text = 'testmessage';
     const newConfig = { ...config, ircNickColor: false };
-    setCustomBot(newConfig);
+    await setCustomBot(newConfig);
     const message = {
       content: text,
       mentions: { users: [] },
@@ -163,10 +165,10 @@ describe('Bot', function () {
     expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
   });
 
-  it('should only use message color defined in config', function () {
+  it('should only use message color defined in config', async () => {
     const text = 'testmessage';
     const newConfig = { ...config, ircNickColors: ['orange'] };
-    setCustomBot(newConfig);
+    await setCustomBot(newConfig);
     const message = {
       content: text,
       mentions: { users: [] },
@@ -185,7 +187,7 @@ describe('Bot', function () {
     expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
   });
 
-  it('should send correct messages to irc', function () {
+  it('should send correct messages to irc', async () => {
     const text = 'testmessage';
     const message = {
       content: text,
@@ -206,7 +208,7 @@ describe('Bot', function () {
     expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
   });
 
-  it('should send to IRC channel mapped by discord channel ID if available', function () {
+  it('should send to IRC channel mapped by discord channel ID if available', async () => {
     const text = 'test message';
     const message = {
       content: text,
@@ -231,7 +233,7 @@ describe('Bot', function () {
     );
   });
 
-  it('should send to IRC channel mapped by discord channel name if ID not available', function () {
+  it('should send to IRC channel mapped by discord channel name if ID not available', async () => {
     const text = 'test message';
     const message = {
       content: text,
@@ -253,7 +255,7 @@ describe('Bot', function () {
     expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
   });
 
-  it('should send attachment URL to IRC', function () {
+  it('should send attachment URL to IRC', async () => {
     const attachmentUrl = 'https://image/url.jpg';
     const message = {
       content: '',
@@ -274,7 +276,7 @@ describe('Bot', function () {
     expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
   });
 
-  it('should send text message and attachment URL to IRC if both exist', function () {
+  it('should send text message and attachment URL to IRC if both exist', async () => {
     const text = 'Look at this cute cat picture!';
     const attachmentUrl = 'https://image/url.jpg';
     const message = {
@@ -302,7 +304,7 @@ describe('Bot', function () {
     expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
   });
 
-  it('should not send an empty text message with an attachment to IRC', function () {
+  it('should not send an empty text message with an attachment to IRC', async () => {
     const message = {
       content: '',
       attachments: createAttachments('https://image/url.jpg'),
@@ -322,7 +324,7 @@ describe('Bot', function () {
     expect(ClientStub.prototype.say).toHaveBeenCalledOnce();
   });
 
-  it('should not send its own messages to irc', function () {
+  it('should not send its own messages to irc', async () => {
     const message = {
       author: {
         username: 'bot',
@@ -335,7 +337,7 @@ describe('Bot', function () {
     expect(ClientStub.prototype.say).not.toHaveBeenCalled();
   });
 
-  it("should not send messages to irc if the channel isn't in the channel mapping", function () {
+  it("should not send messages to irc if the channel isn't in the channel mapping", async () => {
     const message = {
       channel: {
         name: 'wrongdiscord',
@@ -351,9 +353,9 @@ describe('Bot', function () {
     expect(ClientStub.prototype.say).not.toHaveBeenCalled();
   });
 
-  it('should break mentions when parallelPingFix is enabled', function () {
+  it('should break mentions when parallelPingFix is enabled', async () => {
     const newConfig = { ...config, parallelPingFix: true };
-    setCustomBot(newConfig);
+    await setCustomBot(newConfig);
 
     const text = 'testmessage';
     const username = 'otherauthor';
@@ -377,7 +379,7 @@ describe('Bot', function () {
     expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
   });
 
-  it('should parse text from discord when sending messages', function () {
+  it('should parse text from discord when sending messages', async () => {
     const text = '<#1234>';
     const message = {
       content: text,
@@ -398,7 +400,7 @@ describe('Bot', function () {
     expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
   });
 
-  it('should use #deleted-channel when referenced channel fails to exist', function () {
+  it('should use #deleted-channel when referenced channel fails to exist', async () => {
     const text = '<#1235>';
     const message = {
       content: text,
@@ -420,7 +422,7 @@ describe('Bot', function () {
     expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
   });
 
-  it('should convert user mentions from discord', function () {
+  it('should convert user mentions from discord', async () => {
     const message = {
       mentions: {
         users: [
@@ -437,7 +439,7 @@ describe('Bot', function () {
     expect(bot.parseText(message)).toEqual('@testuser hi');
   });
 
-  it('should convert user nickname mentions from discord', function () {
+  it('should convert user nickname mentions from discord', async () => {
     const message = {
       mentions: {
         users: [
@@ -454,7 +456,7 @@ describe('Bot', function () {
     expect(bot.parseText(message)).toEqual('@testuser hi');
   });
 
-  it('should convert twitch emotes from discord', function () {
+  it('should convert twitch emotes from discord', async () => {
     const message = {
       mentions: { users: [] },
       content: '<:SCGWat:230473833046343680>',
@@ -463,7 +465,7 @@ describe('Bot', function () {
     expect(bot.parseText(message)).toEqual(':SCGWat:');
   });
 
-  it('should convert animated emoji from discord', function () {
+  it('should convert animated emoji from discord', async () => {
     const message = {
       mentions: { users: [] },
       content: '<a:in_love:432887860270465028>',
@@ -472,7 +474,7 @@ describe('Bot', function () {
     expect(bot.parseText(message)).toEqual(':in_love:');
   });
 
-  it.skip('should convert user at-mentions from IRC', function () {
+  it.skip('should convert user at-mentions from IRC', async () => {
     const testUser = addUser({ username: 'testuser', id: '123' });
 
     const username = 'ircuser';
@@ -483,7 +485,7 @@ describe('Bot', function () {
     expect(sendStub).not.toHaveBeenCalledWith(expected);
   });
 
-  it.skip('should convert user colon-initial mentions from IRC', function () {
+  it.skip('should convert user colon-initial mentions from IRC', async () => {
     const testUser = addUser({ username: 'testuser', id: '123' });
 
     const username = 'ircuser';
@@ -494,7 +496,7 @@ describe('Bot', function () {
     expect(sendStub).not.toHaveBeenCalledWith(expected);
   });
 
-  it.skip('should convert user comma-initial mentions from IRC', function () {
+  it.skip('should convert user comma-initial mentions from IRC', async () => {
     const testUser = addUser({ username: 'testuser', id: '123' });
 
     const username = 'ircuser';
@@ -505,7 +507,7 @@ describe('Bot', function () {
     expect(sendStub).not.toHaveBeenCalledWith(expected);
   });
 
-  it('should not convert user initial mentions from IRC mid-message', function () {
+  it('should not convert user initial mentions from IRC mid-message', async () => {
     addUser({ username: 'testuser', id: '123' });
 
     const username = 'ircuser';
@@ -516,7 +518,7 @@ describe('Bot', function () {
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
-  it('should not convert user at-mentions from IRC if such user does not exist', function () {
+  it('should not convert user at-mentions from IRC if such user does not exist', async () => {
     const username = 'ircuser';
     const text = 'See you there @5pm';
     const expected = `**<${username}>** See you there @5pm`;
@@ -525,7 +527,7 @@ describe('Bot', function () {
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
-  it('should not convert user initial mentions from IRC if such user does not exist', function () {
+  it('should not convert user initial mentions from IRC if such user does not exist', async () => {
     const username = 'ircuser';
     const text = 'Agreed, see you then.';
     const expected = `**<${username}>** Agreed, see you then.`;
@@ -534,7 +536,7 @@ describe('Bot', function () {
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
-  it.skip('should convert multiple user mentions from IRC', function () {
+  it.skip('should convert multiple user mentions from IRC', async () => {
     const testUser = addUser({ username: 'testuser', id: '123' });
     const anotherUser = addUser({ username: 'anotheruser', id: '124' });
 
@@ -549,7 +551,7 @@ describe('Bot', function () {
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
-  it('should convert emoji mentions from IRC', function () {
+  it('should convert emoji mentions from IRC', async () => {
     addEmoji({ id: '987', name: 'testemoji', require_colons: true });
 
     const username = 'ircuser';
@@ -560,7 +562,7 @@ describe('Bot', function () {
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
-  it('should convert channel mentions from IRC', function () {
+  it('should convert channel mentions from IRC', async () => {
     guild.addTextChannel({ id: '1235', name: 'testchannel' });
     guild.addTextChannel({ id: '1236', name: 'channel-compliqué' });
     const otherGuild = bot.discord.createGuildStub({ id: '2' });
@@ -574,7 +576,7 @@ describe('Bot', function () {
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
-  it.skip('should convert newlines from discord', function () {
+  it.skip('should convert newlines from discord', async () => {
     const message = {
       mentions: { users: [] },
       content: 'hi\nhi\r\nhi\r',
@@ -583,7 +585,7 @@ describe('Bot', function () {
     expect(bot.parseText(message)).toEqual('hi hi hi ');
   });
 
-  it('should hide usernames for commands to IRC', function () {
+  it('should hide usernames for commands to IRC', async () => {
     const text = '!test command';
     const message = {
       content: text,
@@ -606,8 +608,8 @@ describe('Bot', function () {
     expect(ClientStub.prototype.say.mock.calls[1]).toEqual(['#irc', text]);
   });
 
-  it('should support multi-character command prefixes', function () {
-    setCustomBot({ ...config, commandCharacters: ['@@'] });
+  it('should support multi-character command prefixes', async () => {
+    await setCustomBot({ ...config, commandCharacters: ['@@'] });
     const text = '@@test command';
     const message = {
       content: text,
@@ -630,7 +632,7 @@ describe('Bot', function () {
     expect(ClientStub.prototype.say.mock.calls[1]).toEqual(['#irc', text]);
   });
 
-  it('should hide usernames for commands to Discord', function () {
+  it('should hide usernames for commands to Discord', async () => {
     const username = 'ircuser';
     const text = '!command';
 
@@ -641,10 +643,10 @@ describe('Bot', function () {
     expect(sendStub.mock.calls[1]).toEqual([text]);
   });
 
-  it('should use nickname instead of username when available', function () {
+  it('should use nickname instead of username when available', async () => {
     const text = 'testmessage';
     const newConfig = { ...config, ircNickColor: false };
-    setCustomBot(newConfig);
+    await setCustomBot(newConfig);
     const id = 'not bot id';
     const nickname = 'discord-nickname';
     guild.members.cache.set(id, { nickname });
@@ -666,7 +668,7 @@ describe('Bot', function () {
     expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
   });
 
-  it.skip('should convert user nickname mentions from IRC', function () {
+  it.skip('should convert user nickname mentions from IRC', async () => {
     const testUser = addUser({
       username: 'testuser',
       id: '123',
@@ -681,7 +683,7 @@ describe('Bot', function () {
     expect(sendStub).not.toHaveBeenCalledWith(expected);
   });
 
-  it.skip('should convert username mentions from IRC even if nickname differs', function () {
+  it.skip('should convert username mentions from IRC even if nickname differs', async () => {
     const testUser = addUser({
       username: 'testuser',
       id: '123',
@@ -696,7 +698,7 @@ describe('Bot', function () {
     expect(sendStub).not.toHaveBeenCalledWith(expected);
   });
 
-  it('should convert username-discriminator mentions from IRC properly', function () {
+  it('should convert username-discriminator mentions from IRC properly', async () => {
     const user1 = addUser({
       username: 'user',
       id: '123',
@@ -717,7 +719,7 @@ describe('Bot', function () {
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
-  it('should convert role mentions from discord', function () {
+  it('should convert role mentions from discord', async () => {
     addRole({ name: 'example-role', id: '12345' });
     const text = '<@&12345>';
     const message = {
@@ -736,7 +738,7 @@ describe('Bot', function () {
     expect(bot.parseText(message)).toEqual('@example-role');
   });
 
-  it('should use @deleted-role when referenced role fails to exist', function () {
+  it('should use @deleted-role when referenced role fails to exist', async () => {
     addRole({ name: 'example-role', id: '12345' });
 
     const text = '<@&12346>';
@@ -757,7 +759,7 @@ describe('Bot', function () {
     expect(bot.parseText(message)).toEqual('@deleted-role');
   });
 
-  it.skip('should convert role mentions from IRC if role mentionable', function () {
+  it.skip('should convert role mentions from IRC if role mentionable', async () => {
     const testRole = addRole({
       name: 'example-role',
       id: '12345',
@@ -772,7 +774,7 @@ describe('Bot', function () {
     expect(sendStub).not.toHaveBeenCalledWith(expected);
   });
 
-  it('should not convert role mentions from IRC if role not mentionable', function () {
+  it('should not convert role mentions from IRC if role not mentionable', async () => {
     addRole({ name: 'example-role', id: '12345', mentionable: false });
 
     const username = 'ircuser';
@@ -783,7 +785,7 @@ describe('Bot', function () {
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
-  it.skip('should convert overlapping mentions from IRC properly and case-insensitively', function () {
+  it.skip('should convert overlapping mentions from IRC properly and case-insensitively', async () => {
     const user = addUser({ username: 'user', id: '111' });
     const nickUser = addUser({
       username: 'user2',
@@ -810,7 +812,7 @@ describe('Bot', function () {
     expect(sendStub).not.toHaveBeenCalledWith(expected);
   });
 
-  it.skip('should convert partial matches from IRC properly', function () {
+  it.skip('should convert partial matches from IRC properly', async () => {
     const user = addUser({ username: 'user', id: '111' });
     const longUser = addUser({ username: 'user-punc', id: '112' });
     const nickUser = addUser({
@@ -834,8 +836,8 @@ describe('Bot', function () {
     expect(sendStub).not.toHaveBeenCalledWith(expected);
   });
 
-  it('should successfully send messages with default config', function () {
-    setCustomBot(configMsgFormatDefault);
+  it('should successfully send messages with default config', async () => {
+    await setCustomBot(configMsgFormatDefault);
 
     bot.sendToDiscord('testuser', '#irc', 'test message');
     expect(sendStub).toHaveBeenCalledTimes(1);
@@ -856,11 +858,11 @@ describe('Bot', function () {
     expect(sendStub).toHaveBeenCalledTimes(1);
   });
 
-  it('should not replace unmatched patterns', function () {
+  it('should not replace unmatched patterns', async () => {
     const format = {
       discord: '{$unmatchedPattern} stays intact: {$author} {$text}',
     };
-    setCustomBot({ ...configMsgFormatDefault, format });
+    await setCustomBot({ ...configMsgFormatDefault, format });
 
     const username = 'testuser';
     const msg = 'test message';
@@ -869,11 +871,11 @@ describe('Bot', function () {
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
-  it('should respect custom formatting for Discord', function () {
+  it('should respect custom formatting for Discord', async () => {
     const format = {
       discord: '<{$author}> {$ircChannel} => {$discordChannel}: {$text}',
     };
-    setCustomBot({ ...configMsgFormatDefault, format });
+    await setCustomBot({ ...configMsgFormatDefault, format });
 
     const username = 'test';
     const msg = 'test @user <#1234>';
@@ -882,8 +884,8 @@ describe('Bot', function () {
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
-  it('should successfully send messages with default config', function () {
-    setCustomBot(configMsgFormatDefault);
+  it('should successfully send messages with default config', async () => {
+    await setCustomBot(configMsgFormatDefault);
 
     bot.sendToDiscord('testuser', '#irc', 'test message');
     expect(sendStub).toHaveBeenCalledTimes(1);
@@ -904,11 +906,11 @@ describe('Bot', function () {
     expect(sendStub).toHaveBeenCalledTimes(1);
   });
 
-  it('should not replace unmatched patterns', function () {
+  it('should not replace unmatched patterns', async () => {
     const format = {
       discord: '{$unmatchedPattern} stays intact: {$author} {$text}',
     };
-    setCustomBot({ ...configMsgFormatDefault, format });
+    await setCustomBot({ ...configMsgFormatDefault, format });
 
     const username = 'testuser';
     const msg = 'test message';
@@ -917,11 +919,11 @@ describe('Bot', function () {
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
-  it('should respect custom formatting for regular Discord output', function () {
+  it('should respect custom formatting for regular Discord output', async () => {
     const format = {
       discord: '<{$author}> {$ircChannel} => {$discordChannel}: {$text}',
     };
-    setCustomBot({ ...configMsgFormatDefault, format });
+    await setCustomBot({ ...configMsgFormatDefault, format });
 
     const username = 'test';
     const msg = 'test @user <#1234>';
@@ -930,12 +932,12 @@ describe('Bot', function () {
     expect(sendStub).toHaveBeenCalledWith(expected);
   });
 
-  it('should respect custom formatting for commands in Discord output', function () {
+  it('should respect custom formatting for commands in Discord output', async () => {
     const format = {
       commandPrelude:
         '{$nickname} from {$ircChannel} sent command to {$discordChannel}:',
     };
-    setCustomBot({ ...configMsgFormatDefault, format });
+    await setCustomBot({ ...configMsgFormatDefault, format });
 
     const username = 'test';
     const msg = '!testcmd';
@@ -945,11 +947,11 @@ describe('Bot', function () {
     expect(sendStub.mock.calls[1]).toEqual([msg]);
   });
 
-  it('should respect custom formatting for regular IRC output', function () {
+  it('should respect custom formatting for regular IRC output', async () => {
     const format = {
       ircText: '<{$nickname}> {$discordChannel} => {$ircChannel}: {$text}',
     };
-    setCustomBot({ ...configMsgFormatDefault, format });
+    await setCustomBot({ ...configMsgFormatDefault, format });
     const message = {
       content: 'test message',
       mentions: { users: [] },
@@ -968,12 +970,12 @@ describe('Bot', function () {
     expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
   });
 
-  it('should respect custom formatting for commands in IRC output', function () {
+  it('should respect custom formatting for commands in IRC output', async () => {
     const format = {
       commandPrelude:
         '{$nickname} from {$discordChannel} sent command to {$ircChannel}:',
     };
-    setCustomBot({ ...configMsgFormatDefault, format });
+    await setCustomBot({ ...configMsgFormatDefault, format });
 
     const text = '!testcmd';
     const message = {
@@ -995,12 +997,12 @@ describe('Bot', function () {
     expect(ClientStub.prototype.say.mock.calls[1]).toEqual(['#irc', text]);
   });
 
-  it('should respect custom formatting for attachment URLs in IRC output', function () {
+  it('should respect custom formatting for attachment URLs in IRC output', async () => {
     const format = {
       urlAttachment:
         '<{$nickname}> {$discordChannel} => {$ircChannel}, attachment: {$attachmentURL}',
     };
-    setCustomBot({ ...configMsgFormatDefault, format });
+    await setCustomBot({ ...configMsgFormatDefault, format });
 
     const attachmentUrl = 'https://image/url.jpg';
     const message = {
@@ -1022,9 +1024,9 @@ describe('Bot', function () {
     expect(ClientStub.prototype.say).toHaveBeenCalledWith('#irc', expected);
   });
 
-  it('should not bother with command prelude if falsy', function () {
+  it('should not bother with command prelude if falsy', async () => {
     const format = { commandPrelude: null };
-    setCustomBot({ ...configMsgFormatDefault, format });
+    await setCustomBot({ ...configMsgFormatDefault, format });
 
     const text = '!testcmd';
     const message = {
@@ -1051,33 +1053,33 @@ describe('Bot', function () {
     expect(sendStub.mock.calls[0]).toEqual([msg]);
   });
 
-  it('should create webhooks clients for each webhook url in the config', function () {
+  it('should create webhooks clients for each webhook url in the config', async () => {
     expect(bot.webhooks).toHaveProperty('#withwebhook');
   });
 
-  it('should extract id and token from webhook urls', function () {
+  it('should extract id and token from webhook urls', async () => {
     expect(bot.webhooks['#withwebhook'].id).toEqual('id');
   });
 
-  it('should find the matching webhook when it exists', function () {
+  it('should find the matching webhook when it exists', async () => {
     expect(bot.findWebhook('#ircwebhook')).not.toEqual(null);
   });
 
-  describe('with enabled Discord webhook', function () {
-    beforeEach(function () {
+  describe('with enabled Discord webhook', async () => {
+    beforeEach(async () => {
       const newConfig = {
         ...config,
         webhooks: { '#discord': 'https://discord.com/api/webhooks/id/token' },
       };
-      setCustomBot(newConfig);
+      await setCustomBot(newConfig);
     });
 
-    it('should prefer webhooks to send a message', function () {
+    it('should prefer webhooks to send a message', async () => {
       bot.sendToDiscord('nick', '#irc', 'text');
       expect(sendWebhookMessageStub).toHaveBeenCalled();
     });
 
-    it('pads too short usernames', function () {
+    it('pads too short usernames', async () => {
       const text = 'message';
       bot.sendToDiscord('n', '#irc', text);
       expect(sendWebhookMessageStub).toHaveBeenCalledWith(text, {
@@ -1087,7 +1089,7 @@ describe('Bot', function () {
       });
     });
 
-    it('slices too long usernames', function () {
+    it('slices too long usernames', async () => {
       const text = 'message';
       bot.sendToDiscord(
         '1234567890123456789012345678901234567890',
@@ -1101,7 +1103,7 @@ describe('Bot', function () {
       });
     });
 
-    it('does not ping everyone if user lacks permission', function () {
+    it('does not ping everyone if user lacks permission', async () => {
       const text = 'message';
       const permission =
         discord.Permissions.FLAGS.VIEW_CHANNEL +
@@ -1120,7 +1122,7 @@ describe('Bot', function () {
       });
     });
 
-    it('sends @everyone messages if the bot has permission to do so', function () {
+    it('sends @everyone messages if the bot has permission to do so', async () => {
       const text = 'message';
       const permission =
         discord.Permissions.FLAGS.VIEW_CHANNEL +
@@ -1155,47 +1157,47 @@ describe('Bot', function () {
       addUser(userObj2, memberObj2);
     };
 
-    describe('when matching avatars', function () {
-      beforeEach(function () {
+    describe('when matching avatars', async () => {
+      beforeEach(async () => {
         setupUser(this);
       });
 
-      it("should match a user's username", function () {
+      it("should match a user's username", async () => {
         expect(bot.getDiscordAvatar('Nick', '#irc')).toEqual(
           '/avatars/123/avatarURL.png?size=128',
         );
       });
 
-      it("should match a user's username case insensitively", function () {
+      it("should match a user's username case insensitively", async () => {
         expect(bot.getDiscordAvatar('nick', '#irc')).toEqual(
           '/avatars/123/avatarURL.png?size=128',
         );
       });
 
-      it("should match a user's nickname", function () {
+      it("should match a user's nickname", async () => {
         expect(bot.getDiscordAvatar('Different', '#irc')).toEqual(
           '/avatars/123/avatarURL.png?size=128',
         );
       });
 
-      it("should match a user's nickname case insensitively", function () {
+      it("should match a user's nickname case insensitively", async () => {
         expect(bot.getDiscordAvatar('different', '#irc')).toEqual(
           '/avatars/123/avatarURL.png?size=128',
         );
       });
 
-      it("should only return matching users' avatars", function () {
+      it("should only return matching users' avatars", async () => {
         expect(bot.getDiscordAvatar('other', '#irc')).to.equal(null);
       });
 
-      it('should return no avatar when there are multiple matches', function () {
+      it('should return no avatar when there are multiple matches', async () => {
         setupCommonPair(this);
         expect(bot.getDiscordAvatar('diffUser', '#irc')).not.toBe(null);
         expect(bot.getDiscordAvatar('diffNick', '#irc')).not.toBe(null);
         expect(bot.getDiscordAvatar('common', '#irc')).to.equal(null);
       });
 
-      it('should handle users without nicknames', function () {
+      it('should handle users without nicknames', async () => {
         const userObj = {
           id: 124,
           username: 'nickless',
@@ -1208,7 +1210,7 @@ describe('Bot', function () {
         );
       });
 
-      it('should handle users without avatars', function () {
+      it('should handle users without avatars', async () => {
         const userObj = { id: 124, username: 'avatarless' };
         const memberObj = {};
         addUser(userObj, memberObj);
@@ -1216,19 +1218,19 @@ describe('Bot', function () {
       });
     });
 
-    describe('when matching avatars with fallback URL', function () {
-      beforeEach(function () {
+    describe('when matching avatars with fallback URL', async () => {
+      beforeEach(async () => {
         const newConfig = {
           ...config,
           webhooks: { '#discord': 'https://discord.com/api/webhooks/id/token' },
           format: { webhookAvatarURL: 'avatarFrom/{$nickname}' },
         };
-        setCustomBot(newConfig);
+        await setCustomBot(newConfig);
 
         setupUser(this);
       });
 
-      it("should use a matching user's avatar", function () {
+      it("should use a matching user's avatar", async () => {
         expect(bot.getDiscordAvatar('Nick', '#irc')).toEqual(
           '/avatars/123/avatarURL.png?size=128',
         );
@@ -1243,13 +1245,13 @@ describe('Bot', function () {
         );
       });
 
-      it('should use fallback without matching user', function () {
+      it('should use fallback without matching user', async () => {
         expect(bot.getDiscordAvatar('other', '#irc')).toEqual(
           'avatarFrom/other',
         );
       });
 
-      it('should use fallback when there are multiple matches', function () {
+      it('should use fallback when there are multiple matches', async () => {
         setupCommonPair(this);
         expect(bot.getDiscordAvatar('diffUser', '#irc')).toEqual(
           '/avatars/125/avatarURL.png?size=128',
@@ -1262,7 +1264,7 @@ describe('Bot', function () {
         );
       });
 
-      it('should use fallback for users without avatars', function () {
+      it('should use fallback for users without avatars', async () => {
         const userObj = { id: 124, username: 'avatarless' };
         const memberObj = {};
         addUser(userObj, memberObj);
@@ -1273,12 +1275,12 @@ describe('Bot', function () {
     });
   });
 
-  it('should not send messages to Discord if IRC user is ignored', function () {
+  it('should not send messages to Discord if IRC user is ignored', async () => {
     bot.sendToDiscord('irc_ignored_user', '#irc', 'message');
     expect(sendStub).not.toHaveBeenCalled();
   });
 
-  it('should not send messages to IRC if Discord user is ignored', function () {
+  it('should not send messages to IRC if Discord user is ignored', async () => {
     const message = {
       content: 'text',
       mentions: { users: [] },
@@ -1296,7 +1298,7 @@ describe('Bot', function () {
     expect(ClientStub.prototype.say).not.toHaveBeenCalled();
   });
 
-  it('should not send messages to IRC if Discord user is ignored by id', function () {
+  it('should not send messages to IRC if Discord user is ignored by id', async () => {
     const message = {
       content: 'text',
       mentions: { users: [] },

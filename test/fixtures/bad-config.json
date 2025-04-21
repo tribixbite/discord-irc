@@ -1,9 +1,7 @@
-[
-  {
-    "server": "irc.bottest.org",
-    "discordToken": "hei",
-    "channelMapping": {
-      "#discord": "#irc"
-    }
+{
+  "server": "irc.bottest.org",
+  "discordToken": "hei",
+  "channelMapping": {
+    "#discord": "#irc"
   }
-]
+}

@@ -72,7 +72,7 @@ class Bot {
   autoSendCommands;
   ircClient;
 
-  constructor(options) {
+  constructor(options: Record<string, unknown>) {
     REQUIRED_FIELDS.forEach((field) => {
       if (!options[field]) {
         throw new ConfigurationError(`Missing configuration field ${field}`);
@@ -143,17 +143,20 @@ class Bot {
     this.webhooks = {};
 
     // Remove channel passwords from the mapping and lowercase IRC channel names
-    _.forOwn(options.channelMapping, (ircChan, discordChan) => {
-      this.channelMapping[discordChan] = ircChan.split(' ')[0].toLowerCase();
-    });
+    _.forOwn(
+      options.channelMapping as Record<string, string>,
+      (ircChan, discordChan) => {
+        this.channelMapping[discordChan] = ircChan.split(' ')[0].toLowerCase();
+      },
+    );
 
     this.invertedMapping = _.invert(this.channelMapping);
     this.autoSendCommands = options.autoSendCommands || [];
   }
 
-  connect() {
+  async connect() {
     logger.debug('Connecting to IRC and Discord');
-    this.discord.login(this.discordToken);
+    await this.discord.login(this.discordToken);
 
     // Extract id and token from Webhook urls and connect.
     _.forOwn(this.webhookOptions, (url, channel) => {

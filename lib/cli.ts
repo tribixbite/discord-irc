@@ -1,49 +1,37 @@
 #!/usr/bin/env node
 
-import fs from 'fs';
-import program from 'commander';
-import path from 'path';
+import fs from 'node:fs';
+import { resolve } from 'node:path';
 import stripJsonComments from 'strip-json-comments';
-import { endsWith } from 'lodash';
 import * as helpers from './helpers';
-import { ConfigurationError } from './errors';
 
-function readJSONConfig(filePath) {
+function readJSONConfig(filePath: string): unknown {
   const configFile = fs.readFileSync(filePath, { encoding: 'utf8' });
-  try {
-    return JSON.parse(stripJsonComments(configFile));
-  } catch (err) {
-    if (err instanceof SyntaxError) {
-      throw new ConfigurationError(
-        'The configuration file contains invalid JSON',
-      );
-    } else {
-      throw err;
-    }
+  return JSON.parse(stripJsonComments(configFile));
+}
+
+async function readJSConfig(filePath: string): Promise<unknown> {
+  const { default: config } = await import(filePath);
+  return config;
+}
+
+export async function run() {
+  const [, , _c, configPath, ...rest] = process.argv;
+  if (rest.length || _c !== '-c' || !configPath) {
+    console.error('Usage: -c <config-file>');
+    process.exit(2);
   }
+
+  const completePath = resolve(process.cwd(), configPath);
+  const config = completePath.endsWith('.json')
+    ? readJSONConfig(completePath)
+    : await readJSConfig(completePath);
+  if (!config || typeof config !== 'object') {
+    console.error(
+      'expecting an object exported from the config file, got',
+      config,
+    );
+    process.exit(2);
+  }
+  await helpers.createBot(config as Record<string, unknown>);
 }
-
-function run() {
-  program
-    .version(require('../package.json').version ?? 'git')
-    .option(
-      '-c, --config <path>',
-      'Sets the path to the config file, otherwise read from the env variable CONFIG_FILE.',
-    )
-    .parse(process.argv);
-
-  const opts = program.opts();
-
-  // If no config option is given, try to use the env variable:
-  if (opts.config) process.env.CONFIG_FILE = opts.config;
-  if (!process.env.CONFIG_FILE)
-    throw new Error('Missing environment variable CONFIG_FILE');
-
-  const completePath = path.resolve(process.cwd(), process.env.CONFIG_FILE);
-  const config = endsWith(process.env.CONFIG_FILE, '.js')
-    ? require(completePath)
-    : readJSONConfig(completePath);
-  helpers.createBots(config);
-}
-
-export default run;
