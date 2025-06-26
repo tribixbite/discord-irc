@@ -1,5 +1,7 @@
 > Connects [Discord](https://discord.com/) and [IRC](https://www.ietf.org/rfc/rfc1459.txt) channels by sending messages back and forth.
 
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/discord-irc-bridge)
+
 ## Installation and usage
 **Note**: discord-irc requires Node.js version 12 or newer, as it depends on [discord.js](https://github.com/hydrabolt/discord.js).
 Future versions may require newer Node.js versions, though we should support active releases.
@@ -25,6 +27,38 @@ $ npm install
 $ npm run build
 $ npm start -- --config /path/to/config.json # Note the extra double dash
 ```
+
+## Deploy on Railway
+
+You can easily deploy this Discord-IRC bridge on [Railway](https://railway.app) using environment variables:
+
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/discord-irc-bridge)
+
+### Railway Environment Variables
+
+Instead of using a configuration file, you can configure the bot using environment variables:
+
+**Required Variables:**
+- `DISCORD_TOKEN` - Your Discord bot token
+- `IRC_NICKNAME` - IRC nickname for the bot
+- `IRC_SERVER` - IRC server to connect to (e.g., `irc.libera.chat`)
+- `CHANNEL_MAPPING` - JSON object mapping Discord channels to IRC channels (e.g., `{"#discord": "#irc"}`)
+
+**Optional Variables:**
+- `PORT` - Port for the health check server (default: 3000)
+- `IRC_OPTIONS` - JSON object with IRC connection options (e.g., `{"port": 6697, "secure": true}`)
+- `COMMAND_CHARACTERS` - JSON array of command prefixes (e.g., `["!", "."]`)
+- `PARALLEL_PING_FIX` - Set to `true` to prevent double pings (default: false)
+- `IRC_NICK_COLOR` - Set to `false` to disable IRC nick colors (default: true)
+- `IRC_STATUS_NOTICES` - Set to `true` to enable join/part notifications (default: false)
+- `IGNORE_USERS` - JSON object to ignore specific users (e.g., `{"irc": ["nick1"], "discord": ["nick2"]}`)
+- `WEBHOOKS` - JSON object mapping channels to webhook URLs
+- `AUTO_SEND_COMMANDS` - JSON array of commands to send on connect
+- `PM_CHANNEL_ID` - Discord channel ID for private message threads (e.g., `123456789` or `#pm-channel`)
+- `PM_THREAD_PREFIX` - Prefix for PM thread names (default: `"PM: "`)
+- `PM_AUTO_ARCHIVE` - Auto-archive threads after N minutes of inactivity (default: `60`)
+
+The Railway deployment includes a health check endpoint at `/health` for monitoring.
 
 ## Configuration
 First you need to create a Discord bot user, which you can do by following the instructions [here](https://github.com/reactiflux/discord-irc/wiki/Creating-a-discord-bot-&-getting-a-token).
@@ -91,6 +125,12 @@ First you need to create a Discord bot user, which you can do by following the i
     // List of webhooks per channel
     "webhooks": {
       "#discord": "https://discord.com/api/webhooks/id/token"
+    },
+    // Private message configuration (optional)
+    "privateMessages": {
+      "channelId": "#private-messages",  // Discord channel for PM threads
+      "threadPrefix": "PM: ",            // Prefix for thread names
+      "autoArchive": 60                  // Auto-archive after N minutes
     }
   }
 ]
@@ -116,3 +156,49 @@ discord-irc's config as follows:
     "#discord-channel": "https://discord.com/api/webhooks/id/token"
   }
 ```
+
+### Private Messages
+
+The bot supports private message functionality that allows Discord users and IRC users to send direct messages to each other through Discord threads.
+
+When an IRC user sends a private message to the bot, it automatically creates a Discord thread in the designated PM channel. Discord users can reply in that thread, and their messages will be sent as private messages to the IRC user.
+
+![pm-thread-example](https://via.placeholder.com/600x300/7289da/ffffff?text=PM+Thread+Example)
+
+**Features:**
+- 🧵 **Thread-based conversations** - Each IRC user gets their own thread
+- 🔄 **Bidirectional messaging** - Send and receive messages in both directions  
+- 📝 **Thread persistence** - Conversations are preserved and auto-archived when inactive
+- 🏷️ **Nick change handling** - Threads update when IRC users change nicknames
+- 🔗 **Attachment support** - Discord attachments are sent as URLs to IRC users
+
+**Configuration:**
+
+```json
+{
+  "privateMessages": {
+    "channelId": "#private-messages",    // Discord channel for PM threads
+    "threadPrefix": "PM: ",              // Prefix for thread names  
+    "autoArchive": 60                    // Auto-archive after N minutes of inactivity
+  }
+}
+```
+
+**Setup:**
+1. Create a dedicated Discord channel for private messages (e.g., `#private-messages`)
+2. Add the channel ID or name to your bot configuration
+3. Ensure the bot has permissions to create and manage threads in that channel
+4. IRC users can now send `/msg <botname> <message>` to start conversations
+5. Discord users can reply in the automatically created threads
+
+**Thread Management:**
+- Threads are named `"PM: <ircnick>"` (customizable with `threadPrefix`)
+- Threads auto-archive after the specified time period (default: 60 minutes)
+- When archived threads receive new messages, they are automatically unarchived
+- If an IRC user changes their nickname, the thread name updates accordingly
+
+**Permissions Required:**
+- `Send Messages` in the PM channel
+- `Create Public Threads` in the PM channel  
+- `Send Messages in Threads`
+- `Manage Threads` (for auto-unarchiving)

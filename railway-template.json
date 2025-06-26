@@ -1,0 +1,52 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "name": "Discord-IRC Bridge",
+  "description": "A bridge that connects Discord and IRC channels by sending messages back and forth",
+  "icon": "https://raw.githubusercontent.com/FauxFaux/discord-irc/main/icon.png",
+  "variables": {
+    "DISCORD_TOKEN": {
+      "description": "Your Discord bot token (get from https://discord.com/developers/applications)",
+      "type": "secret"
+    },
+    "IRC_NICKNAME": {
+      "description": "IRC nickname for the bot",
+      "default": "discord-bot"
+    },
+    "IRC_SERVER": {
+      "description": "IRC server to connect to",
+      "default": "irc.libera.chat"
+    },
+    "CHANNEL_MAPPING": {
+      "description": "JSON object mapping Discord channels to IRC channels",
+      "default": "{\"#general\": \"#random\"}"
+    },
+    "IRC_OPTIONS": {
+      "description": "IRC connection options (JSON)",
+      "default": "{\"port\": 6697, \"secure\": true, \"floodProtection\": true}"
+    },
+    "COMMAND_CHARACTERS": {
+      "description": "Command prefix characters (JSON array)",
+      "default": "[\"!\", \".\"]"
+    },
+    "PARALLEL_PING_FIX": {
+      "description": "Prevent double pings for users in both Discord and IRC",
+      "default": "false"
+    },
+    "IRC_NICK_COLOR": {
+      "description": "Enable IRC nickname colors",
+      "default": "true"
+    },
+    "IRC_STATUS_NOTICES": {
+      "description": "Show join/part notifications in Discord",
+      "default": "false"
+    },
+    "PM_CHANNEL_ID": {
+      "description": "Discord channel ID for private message threads (optional)",
+      "default": ""
+    }
+  },
+  "healthcheckPath": "/health",
+  "build": {
+    "builder": "nixpacks"
+  }
+}

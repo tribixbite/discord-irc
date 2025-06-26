@@ -70,6 +70,13 @@ class Bot {
   autoSendCommands;
   ircClient;
 
+  // Private Message functionality
+  privateMessages;
+  pmChannelId;
+  pmThreadPrefix;
+  pmAutoArchive;
+  pmThreads: Map<string, string>; // ircNick -> threadId mapping
+
   constructor(options: Record<string, unknown>) {
     for (const field of REQUIRED_FIELDS) {
       if (!options[field]) {
@@ -153,6 +160,13 @@ class Bot {
     }
 
     this.autoSendCommands = options.autoSendCommands || [];
+
+    // Private Message configuration
+    this.privateMessages = options.privateMessages || {};
+    this.pmChannelId = this.privateMessages.channelId || this.privateMessages.channel;
+    this.pmThreadPrefix = this.privateMessages.threadPrefix || 'PM: ';
+    this.pmAutoArchive = this.privateMessages.autoArchive || 60; // minutes
+    this.pmThreads = new Map();
   }
 
   async connect(): Promise<void> {
@@ -234,12 +248,30 @@ class Bot {
     });
 
     this.discord.on('message', (message) => {
-      // Ignore bot messages and people leaving/joining
+      // Quick check: is this a PM thread message?
+      if (message.channel && 
+          typeof message.channel.isThread === 'function' && 
+          message.channel.isThread() && 
+          message.channel.name && 
+          message.channel.name.startsWith(this.pmThreadPrefix)) {
+        // Handle PM thread message asynchronously
+        this.handleDiscordPrivateMessage(message).catch((error) => {
+          logger.error('Error handling Discord PM:', error);
+        });
+        return;
+      }
+      
+      // Handle regular channel messages immediately
       this.sendToIRC(message);
     });
 
     // TODO: almost certainly not async safe
     this.ircClient.on('message', this.sendToDiscord.bind(this));
+
+    // Handle private messages from IRC users
+    this.ircClient.on('pm', async (from, text) => {
+      await this.handleIrcPrivateMessage(from, text);
+    });
 
     // TODO: almost certainly not async safe
     this.ircClient.on('notice', async (author, to, text) =>
@@ -248,6 +280,11 @@ class Bot {
 
     // TODO: almost certainly not async safe
     this.ircClient.on('nick', async (oldNick, newNick, channels) => {
+      // Update PM thread mapping for nick changes (don't await to avoid blocking)
+      this.updatePmThreadForNickChange(oldNick, newNick).catch((error) => {
+        logger.error('Error updating PM thread for nick change:', error);
+      });
+      
       if (!this.ircStatusNotices) return;
       for (const channelName of channels) {
         const channel = channelName.toLowerCase();
@@ -806,6 +843,241 @@ class Bot {
       `#${discordChannel.name}`,
     );
     await discordChannel.send(text);
+  }
+
+  // Private Message functionality
+  
+  sanitizeNickname(nickname: string): string {
+    // Remove/replace characters that could break Discord thread names
+    return nickname.replace(/[<>@#&!]/g, '_').substring(0, 80);
+  }
+
+  async findPmChannel(): Promise<BaseGuildTextChannel | null> {
+    if (!this.pmChannelId) return null;
+    
+    // Try to find by ID first
+    if (this.discord.channels.cache.has(this.pmChannelId)) {
+      const channel = this.discord.channels.cache.get(this.pmChannelId);
+      if (channel && isTextChannel(channel)) {
+        return channel;
+      }
+    }
+    
+    // Try to find by name (if pmChannelId starts with #)
+    if (this.pmChannelId.startsWith('#')) {
+      const channelName = this.pmChannelId.slice(1);
+      const channel = this.discord.channels.cache
+        .filter((c: any) => 
+          c.type === 'GUILD_TEXT' && 
+          c.name === channelName
+        )
+        .first() as BaseGuildTextChannel | undefined;
+      
+      if (channel) return channel;
+    }
+    
+    return null;
+  }
+
+  async findOrCreatePmThread(ircNick: string): Promise<any> {
+    const pmChannel = await this.findPmChannel();
+    if (!pmChannel) {
+      logger.warn('PM channel not found or not configured');
+      return null;
+    }
+
+    const sanitizedNick = this.sanitizeNickname(ircNick);
+    const threadName = `${this.pmThreadPrefix}${sanitizedNick}`;
+    
+    // Check if we have a cached thread
+    const cachedThreadId = this.pmThreads.get(ircNick.toLowerCase());
+    if (cachedThreadId) {
+      const cachedThread = pmChannel.threads.cache.get(cachedThreadId);
+      if (cachedThread) {
+        // Unarchive if archived
+        if (cachedThread.archived) {
+          try {
+            await cachedThread.setArchived(false);
+          } catch (error) {
+            logger.warn('Failed to unarchive PM thread:', error);
+          }
+        }
+        return cachedThread;
+      }
+    }
+
+    // Search for existing thread by name
+    const existingThread = pmChannel.threads.cache.find(
+      thread => thread.name === threadName
+    );
+    
+    if (existingThread) {
+      this.pmThreads.set(ircNick.toLowerCase(), existingThread.id);
+      if (existingThread.archived) {
+        try {
+          await existingThread.setArchived(false);
+        } catch (error) {
+          logger.warn('Failed to unarchive existing PM thread:', error);
+        }
+      }
+      return existingThread;
+    }
+
+    // Create new thread
+    try {
+      const newThread = await pmChannel.threads.create({
+        name: threadName,
+        autoArchiveDuration: this.pmAutoArchive,
+        reason: `Private message conversation with IRC user ${ircNick}`
+      });
+      
+      this.pmThreads.set(ircNick.toLowerCase(), newThread.id);
+      logger.debug(`Created new PM thread for ${ircNick}: ${newThread.id}`);
+      
+      // Send initial message explaining the thread
+      await newThread.send(
+        `🔗 **Private message thread with IRC user \`${ircNick}\`**\n` +
+        `Messages sent here will be forwarded to ${ircNick} on IRC.\n` +
+        `Messages from ${ircNick} will appear in this thread.`
+      );
+      
+      return newThread;
+    } catch (error) {
+      logger.error('Failed to create PM thread:', error);
+      return null;
+    }
+  }
+
+  async handleIrcPrivateMessage(from: string, text: string): Promise<void> {
+    // Check if PM feature is enabled and configured
+    if (!this.pmChannelId) {
+      logger.debug('Received IRC PM but private messages not configured');
+      return;
+    }
+
+    // Check if user is ignored
+    if (this.ignoredIrcUser(from)) {
+      logger.debug(`Ignoring PM from ignored IRC user: ${from}`);
+      return;
+    }
+
+    logger.debug(`Received IRC PM from ${from}: ${text}`);
+
+    try {
+      const thread = await this.findOrCreatePmThread(from);
+      if (!thread) {
+        logger.warn(`Failed to create/find PM thread for ${from}`);
+        return;
+      }
+
+      // Format the message similar to regular IRC messages
+      const withFormat = formatFromIRCToDiscord(text);
+      const patternMap = {
+        author: from,
+        nickname: from,
+        displayUsername: from,
+        text: withFormat,
+        withMentions: withFormat,
+        ircChannel: 'PM',
+        discordChannel: thread.name,
+      };
+
+      // Apply Discord formatting  
+      const formattedMessage = Bot.substitutePattern(this.formatDiscord, patternMap);
+      
+      await thread.send(formattedMessage);
+      logger.debug(`Sent IRC PM to Discord thread: ${from} -> ${thread.name}`);
+      
+    } catch (error) {
+      logger.error('Error handling IRC private message:', error);
+    }
+  }
+
+  async handleDiscordPrivateMessage(message: discord.Message): Promise<boolean> {
+    // Check if this is a message in a PM thread
+    if (!message.channel.isThread()) return false;
+    
+    const thread = message.channel;
+    const threadName = thread.name;
+    
+    // Check if this is a PM thread
+    if (!threadName.startsWith(this.pmThreadPrefix)) return false;
+    
+    // Extract IRC nickname from thread name
+    const ircNick = threadName.substring(this.pmThreadPrefix.length);
+    if (!ircNick) return false;
+
+    // Don't send bot's own messages
+    if (message.author.id === this.discord.user?.id) return true;
+    
+    // Check if user is ignored
+    if (this.ignoredDiscordUser(message.author)) {
+      logger.debug(`Ignoring PM from ignored Discord user: ${message.author.username}`);
+      return true;
+    }
+
+    try {
+      // Parse and format the message
+      let text = this.parseText(message);
+      
+      if (text.trim() === '') {
+        // Handle attachments only
+        if (message.attachments && message.attachments.size > 0) {
+          message.attachments.forEach((attachment) => {
+            const attachmentMessage = `[Attachment: ${attachment.name}] ${attachment.url}`;
+            this.ircClient.say(ircNick, attachmentMessage);
+            logger.debug(`Sent Discord attachment to IRC PM: ${message.author.username} -> ${ircNick}`);
+          });
+        }
+        return true;
+      }
+
+      // Format message for IRC (remove Discord formatting)
+      text = formatFromDiscordToIRC(text);
+      
+      // Send to IRC user
+      const lines = text.split('\n');
+      for (const line of lines) {
+        if (line.trim()) {
+          this.ircClient.say(ircNick, line);
+          logger.debug(`Sent Discord PM to IRC: ${message.author.username} -> ${ircNick}: ${line}`);
+        }
+      }
+      
+      return true;
+    } catch (error) {
+      logger.error('Error sending Discord PM to IRC:', error);
+      return true; // Still handled, just failed
+    }
+  }
+
+  async updatePmThreadForNickChange(oldNick: string, newNick: string): Promise<void> {
+    const threadId = this.pmThreads.get(oldNick.toLowerCase());
+    if (!threadId) return;
+
+    // Update the mapping
+    this.pmThreads.delete(oldNick.toLowerCase());
+    this.pmThreads.set(newNick.toLowerCase(), threadId);
+
+    // Try to update the thread name
+    try {
+      const pmChannel = await this.findPmChannel();
+      if (pmChannel) {
+        const thread = pmChannel.threads.cache.get(threadId);
+        if (thread) {
+          const sanitizedNewNick = this.sanitizeNickname(newNick);
+          const newThreadName = `${this.pmThreadPrefix}${sanitizedNewNick}`;
+          await thread.setName(newThreadName);
+          
+          // Send notification message
+          await thread.send(`🔄 IRC user changed nickname: \`${oldNick}\` → \`${newNick}\``);
+          
+          logger.debug(`Updated PM thread name for nick change: ${oldNick} -> ${newNick}`);
+        }
+      }
+    } catch (error) {
+      logger.warn('Failed to update PM thread name for nick change:', error);
+    }
   }
 }
 
