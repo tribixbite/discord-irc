@@ -202,3 +202,83 @@ When an IRC user sends a private message to the bot, it automatically creates a 
 - `Create Public Threads` in the PM channel  
 - `Send Messages in Threads`
 - `Manage Threads` (for auto-unarchiving)
+
+### Discord Slash Commands
+
+The bot provides Discord slash commands for administration and monitoring. All commands require Administrator permissions.
+
+**Available Commands:**
+
+#### `/irc-status`
+Show comprehensive IRC bridge status and statistics
+- IRC server and bot nickname
+- Number of mapped channels
+- Tracked IRC users count
+- Active PM threads
+- Bot uptime
+
+#### `/irc-users [channel]`
+List users in IRC channels
+- Without `channel`: Shows all channels and user counts
+- With `channel`: Shows detailed user list for specific channel
+- Supports channel names with or without `#` prefix
+
+#### `/irc-pm <subcommand>`
+Manage IRC private message threads
+- `list` - List all active PM threads with Discord links
+- `cleanup` - Clean up inactive PM threads (removes threads older than 7 days)
+- `close <nickname>` - Close and archive a specific PM thread
+
+#### `/irc-reconnect`
+Force IRC client to reconnect
+- Useful for connection issues or manual restarts
+- Gracefully disconnects and reconnects after 2 seconds
+
+**Setup:**
+1. Ensure the bot has `Administrator` permissions in your Discord server
+2. Commands are automatically registered when the bot starts
+3. All commands are ephemeral (only visible to the user who ran them)
+4. Command responses include rich embeds with relevant information
+
+**Security:**
+- All commands require Discord Administrator permissions
+- Double permission check: Discord permissions + internal admin validation
+- Commands are ephemeral to prevent information leakage
+- No sensitive data is exposed in command responses
+
+### Message Edit/Delete Synchronization
+
+The bot synchronizes Discord message edits and deletions to IRC, providing transparency when messages are modified or removed after being sent.
+
+**Features:**
+- 🔄 **Edit Notifications** - When Discord messages are edited, IRC shows both old and new content
+- 🗑️ **Delete Notifications** - When Discord messages are deleted, IRC shows what was removed
+- ⏰ **Time Window** - Only recent messages (5 minutes by default) trigger notifications
+- 📊 **Bulk Delete Handling** - Discord purge operations show summary notifications
+- 💾 **Persistent Tracking** - Message history survives bot restarts
+- 🧹 **Automatic Cleanup** - Old message records are automatically removed
+
+**How it works:**
+```
+Discord: User posts "Hello wrold"
+IRC:     <username> Hello wrold
+
+Discord: User edits to "Hello world"  
+IRC:     [EDIT] username: Hello world (was: Hello wrold)
+
+Discord: User deletes message
+IRC:     [DELETED] username deleted: Hello world
+```
+
+**Configuration:**
+- Edit window: 5 minutes (configurable in code)
+- Message history: Up to 1000 recent messages tracked
+- Automatic cleanup: Messages older than 24 hours are purged
+- Bulk delete threshold: Shows summary for Discord purge operations
+
+**Technical Details:**
+- Uses Discord partial message support for edit/delete events
+- Integrates with the persistence service for data survival
+- Non-blocking async processing to avoid impact on regular messages
+- Memory-efficient cleanup to prevent resource exhaustion
+- Full integration with slash command status reporting

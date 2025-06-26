@@ -2,6 +2,7 @@ import irc from 'irc-upd';
 import discord, {
   AnyChannel,
   BaseGuildTextChannel,
+  CommandInteraction,
   Intents,
   TextChannel,
   WebhookClient,
@@ -9,6 +10,9 @@ import discord, {
 import { logger } from './logger';
 import { validateChannelMapping } from './validators';
 import { formatFromDiscordToIRC, formatFromIRCToDiscord } from './formatting';
+import { PersistenceService } from './persistence';
+import { registerSlashCommands, handleSlashCommand } from './slash-commands';
+import { MessageSynchronizer } from './message-sync';
 
 // Usernames need to be between 2 and 32 characters for webhooks:
 const USERNAME_MIN_LENGTH = 2;
@@ -77,6 +81,12 @@ class Bot {
   pmAutoArchive;
   pmThreads: Map<string, string>; // ircNick -> threadId mapping
 
+  // Persistence service
+  persistence: PersistenceService;
+  
+  // Message synchronization
+  messageSync: MessageSynchronizer;
+
   constructor(options: Record<string, unknown>) {
     for (const field of REQUIRED_FIELDS) {
       if (!options[field]) {
@@ -88,12 +98,20 @@ class Bot {
 
     this.discord = new discord.Client({
       retryLimit: 3,
-      intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES],
+      intents: [
+        Intents.FLAGS.GUILDS, 
+        Intents.FLAGS.GUILD_MESSAGES,
+        Intents.FLAGS.GUILD_MESSAGE_REACTIONS
+      ],
+      partials: ['MESSAGE'], // Enable partial message support for edit/delete events
     });
 
     this.server = options.server;
     this.nickname = options.nickname;
     this.ircOptions = options.ircOptions;
+    
+    // Initialize persistence service
+    this.persistence = new PersistenceService(options.dbPath as string);
     this.discordToken = options.discordToken;
     this.commandCharacters = (options.commandCharacters as string[]) || [];
     this.ircNickColor = options.ircNickColor !== false; // default to true
@@ -167,10 +185,29 @@ class Bot {
     this.pmThreadPrefix = this.privateMessages.threadPrefix || 'PM: ';
     this.pmAutoArchive = this.privateMessages.autoArchive || 60; // minutes
     this.pmThreads = new Map();
+    
+    // Initialize message synchronization
+    this.messageSync = new MessageSynchronizer(this);
   }
 
   async connect(): Promise<void> {
     logger.debug('Connecting to IRC and Discord');
+    
+    // Initialize persistence service first
+    await this.persistence.initialize();
+    
+    // Load existing data from persistence
+    this.pmThreads = await this.persistence.getAllPMThreads();
+    const channelUsersData = await this.persistence.getAllChannelUsers();
+    
+    // Convert Set data back to the expected format
+    for (const [channel, users] of Object.entries(channelUsersData)) {
+      this.channelUsers[channel] = users;
+    }
+    
+    // Load message sync history from persistence
+    await this.messageSync.loadHistoryFromPersistence();
+    
     await this.discord.login(this.discordToken);
 
     // Extract id and token from Webhook urls and connect.
@@ -214,17 +251,29 @@ class Bot {
     this.attachListeners();
   }
 
-  disconnect() {
+  async disconnect() {
     this.ircClient.disconnect();
     this.discord.destroy();
     for (const x of Object.values(this.webhooks)) {
       x.client.destroy();
     }
+    // Save message sync history to persistence
+    await this.messageSync.saveHistoryToPersistence();
+    // Close persistence service
+    await this.persistence.close();
   }
 
   attachListeners() {
-    this.discord.on('ready', () => {
+    this.discord.on('ready', async () => {
       logger.info('Connected to Discord');
+      
+      // Register slash commands when bot is ready
+      await registerSlashCommands(this);
+      
+      // Save uptime start metric
+      if (this.persistence) {
+        await this.persistence.saveMetric('uptime_start', Date.now().toString());
+      }
     });
 
     this.ircClient.on('registered', (message) => {
@@ -265,6 +314,26 @@ class Bot {
       this.sendToIRC(message);
     });
 
+    // Handle slash command interactions
+    this.discord.on('interactionCreate', async (interaction) => {
+      if (!interaction.isCommand()) return;
+      
+      await handleSlashCommand(interaction, this);
+    });
+
+    // Handle message edits and deletions
+    this.discord.on('messageUpdate', async (oldMessage, newMessage) => {
+      await this.messageSync.handleMessageEdit(oldMessage, newMessage);
+    });
+
+    this.discord.on('messageDelete', async (message) => {
+      await this.messageSync.handleMessageDelete(message);
+    });
+
+    this.discord.on('messageDeleteBulk', async (messages) => {
+      await this.messageSync.handleBulkDelete(messages);
+    });
+
     // TODO: almost certainly not async safe
     this.ircClient.on('message', this.sendToDiscord.bind(this));
 
@@ -296,6 +365,10 @@ class Bot {
               channel,
               `*${oldNick}* is now known as ${newNick}`,
             );
+            // Save updated channel users to persistence (don't await to avoid blocking)
+            this.saveChannelUsersToPersistence(channel).catch((error) => {
+              logger.error('Failed to save channel users after nick change:', error);
+            });
           }
         } else {
           logger.warn(
@@ -313,7 +386,13 @@ class Bot {
       const channel = channelName.toLowerCase();
       // self-join is announced before names (which includes own nick)
       // so don't add nick to channelUsers
-      if (nick !== this.ircClient.nick) this.channelUsers[channel].add(nick);
+      if (nick !== this.ircClient.nick) {
+        this.channelUsers[channel].add(nick);
+        // Save updated channel users to persistence (don't await to avoid blocking)
+        this.saveChannelUsersToPersistence(channel).catch((error) => {
+          logger.error('Failed to save channel users after join:', error);
+        });
+      }
       await this.sendExactToDiscord(
         channel,
         `*${nick}* has joined the channel`,
@@ -333,6 +412,10 @@ class Bot {
       }
       if (this.channelUsers[channel]) {
         this.channelUsers[channel].delete(nick);
+        // Save updated channel users to persistence (don't await to avoid blocking)
+        this.saveChannelUsersToPersistence(channel).catch((error) => {
+          logger.error('Failed to save channel users after part:', error);
+        });
       } else {
         logger.warn(
           `No channelUsers found for ${channel} when ${nick} parted.`,
@@ -369,6 +452,10 @@ class Bot {
       if (!this.ircStatusNotices) return;
       const channel = channelName.toLowerCase();
       this.channelUsers[channel] = new Set(Object.keys(nicks));
+      // Save initial channel users to persistence (don't await to avoid blocking)
+      this.saveChannelUsersToPersistence(channel).catch((error) => {
+        logger.error('Failed to save initial channel users:', error);
+      });
     });
 
     // TODO: almost certainly not async safe
@@ -567,6 +654,9 @@ class Bot {
           this.ircClient.say(ircChannel, prelude);
         }
         this.ircClient.say(ircChannel, text);
+        
+        // Record command message for edit/delete tracking
+        this.messageSync.recordMessage(message.id, ircChannel, text, nickname);
       } else {
         if (text !== '') {
           // Convert formatting
@@ -581,6 +671,9 @@ class Bot {
               sentence = Bot.substitutePattern(this.formatIRCText, patternMap);
               logger.debug('Sending message to IRC', ircChannel, sentence);
               this.ircClient.say(ircChannel, sentence);
+              
+              // Record each sentence for edit/delete tracking
+              this.messageSync.recordMessage(message.id, ircChannel, sentence, nickname);
             }
           }
         }
@@ -600,6 +693,9 @@ class Bot {
               urlMessage,
             );
             this.ircClient.say(ircChannel, urlMessage);
+            
+            // Record attachment URL for edit/delete tracking
+            this.messageSync.recordMessage(message.id, ircChannel, urlMessage, nickname);
           });
         }
       }
@@ -902,6 +998,8 @@ class Bot {
             logger.warn('Failed to unarchive PM thread:', error);
           }
         }
+        // Update activity timestamp in persistence
+        await this.persistence.savePMThread(ircNick, cachedThread.id, pmChannel.id);
         return cachedThread;
       }
     }
@@ -913,6 +1011,8 @@ class Bot {
     
     if (existingThread) {
       this.pmThreads.set(ircNick.toLowerCase(), existingThread.id);
+      // Save to persistence
+      await this.persistence.savePMThread(ircNick, existingThread.id, pmChannel.id);
       if (existingThread.archived) {
         try {
           await existingThread.setArchived(false);
@@ -932,6 +1032,8 @@ class Bot {
       });
       
       this.pmThreads.set(ircNick.toLowerCase(), newThread.id);
+      // Save to persistence
+      await this.persistence.savePMThread(ircNick, newThread.id, pmChannel.id);
       logger.debug(`Created new PM thread for ${ircNick}: ${newThread.id}`);
       
       // Send initial message explaining the thread
@@ -1058,6 +1160,9 @@ class Bot {
     // Update the mapping
     this.pmThreads.delete(oldNick.toLowerCase());
     this.pmThreads.set(newNick.toLowerCase(), threadId);
+    
+    // Update in persistence
+    await this.persistence.updatePMThreadNick(oldNick, newNick);
 
     // Try to update the thread name
     try {
@@ -1077,6 +1182,17 @@ class Bot {
       }
     } catch (error) {
       logger.warn('Failed to update PM thread name for nick change:', error);
+    }
+  }
+
+  async saveChannelUsersToPersistence(channel: string): Promise<void> {
+    try {
+      const users = this.channelUsers[channel];
+      if (users) {
+        await this.persistence.saveChannelUsers(channel, users);
+      }
+    } catch (error) {
+      logger.error('Failed to save channel users to persistence:', error);
     }
   }
 }
