@@ -3,7 +3,8 @@ import {
   Permissions,
   MessageEmbed,
   MessageAttachment,
-  ApplicationCommandData
+  ApplicationCommandData,
+  TextChannel
 } from 'discord.js';
 import { logger } from './logger';
 import Bot from './bot';
@@ -1020,6 +1021,348 @@ export const s3Command: SlashCommand = {
   }
 };
 
+// Mention management command
+export const mentionCommand: SlashCommand = {
+  data: {
+    name: 'irc-mentions',
+    description: 'Manage IRC-to-Discord mention notifications',
+    defaultMemberPermissions: Permissions.FLAGS.ADMINISTRATOR,
+    options: [
+      {
+        type: 'SUB_COMMAND',
+        name: 'status',
+        description: 'Show mention detection configuration and status'
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'test',
+        description: 'Test mention detection for a specific username and message',
+        options: [
+          {
+            type: 'STRING',
+            name: 'username',
+            description: 'Discord username to test',
+            required: true
+          },
+          {
+            type: 'STRING',
+            name: 'message',
+            description: 'IRC message text to test',
+            required: true
+          },
+          {
+            type: 'STRING',
+            name: 'irc_author',
+            description: 'IRC author username (for anti-self-ping test)',
+            required: false
+          }
+        ]
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'enable',
+        description: 'Enable mention detection'
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'disable',
+        description: 'Disable mention detection'
+      }
+    ]
+  },
+  async execute(interaction: CommandInteraction, bot: Bot) {
+    // Admin permission check
+    if (!interaction.memberPermissions?.has(Permissions.FLAGS.ADMINISTRATOR)) {
+      await interaction.reply({ 
+        content: '❌ You need Administrator permissions to use this command.', 
+        ephemeral: true 
+      });
+      return;
+    }
+
+    try {
+      const subcommand = interaction.options.getSubcommand();
+      
+      switch (subcommand) {
+        case 'status': {
+          const config = bot.mentionDetector.getConfig();
+          
+          const embed = new MessageEmbed()
+            .setTitle('🔔 Mention Detection Configuration')
+            .setColor(config.enabled ? '#00ff00' : '#ff9900')
+            .setTimestamp();
+
+          embed.addField('Status', config.enabled ? '✅ Enabled' : '❌ Disabled', true)
+            .addField('Case Sensitive', config.caseSensitive ? 'Yes' : 'No', true)
+            .addField('Word Boundary', config.requireWordBoundary ? 'Required' : 'Not Required', true)
+            .addField('Partial Matches', config.allowPartialMatches ? 'Allowed' : 'Not Allowed', true)
+            .addField('Max Username Length', `${config.maxLength} characters`, true)
+            .addField('Excluded Prefixes', config.excludePrefixes.join(', ') || 'None', true)
+            .addField('Excluded Suffixes', config.excludeSuffixes.join(', ') || 'None', true);
+
+          if (config.enabled) {
+            embed.setDescription('Mention detection is active. IRC usernames in messages will be converted to Discord mentions with anti-self-ping protection.');
+          } else {
+            embed.setDescription('Mention detection is disabled. Only @username#discriminator format will create mentions.');
+          }
+
+          await interaction.reply({ embeds: [embed], ephemeral: true });
+          break;
+        }
+
+        case 'test': {
+          const username = interaction.options.getString('username', true);
+          const message = interaction.options.getString('message', true);
+          const ircAuthor = interaction.options.getString('irc_author') || 'testuser';
+          
+          const wouldMention = bot.mentionDetector.wouldMention(message, username, ircAuthor);
+          
+          const embed = new MessageEmbed()
+            .setTitle('🧪 Mention Detection Test')
+            .setColor(wouldMention ? '#00ff00' : '#ff9900')
+            .addField('Username', username, true)
+            .addField('IRC Author', ircAuthor, true)
+            .addField('Message', `\`${message}\``, false)
+            .addField('Result', wouldMention ? '✅ Would mention' : '❌ Would not mention', true)
+            .setTimestamp();
+
+          if (username.toLowerCase() === ircAuthor.toLowerCase()) {
+            embed.addField('Anti-Self-Ping', '🛡️ Same user protection triggered', true);
+          }
+
+          await interaction.reply({ embeds: [embed], ephemeral: true });
+          break;
+        }
+
+        case 'enable': {
+          bot.mentionDetector.updateConfig({ enabled: true });
+          await interaction.reply({ 
+            content: '✅ **Mention Detection Enabled**\n\nIRC usernames in messages will now be converted to Discord mentions with anti-self-ping protection.',
+            ephemeral: true 
+          });
+          break;
+        }
+
+        case 'disable': {
+          bot.mentionDetector.updateConfig({ enabled: false });
+          await interaction.reply({ 
+            content: '❌ **Mention Detection Disabled**\n\nOnly @username#discriminator format will create mentions.',
+            ephemeral: true 
+          });
+          break;
+        }
+      }
+      
+    } catch (error) {
+      logger.error('Error in mention command:', error);
+      await interaction.reply({ 
+        content: '❌ Failed to execute mention command.', 
+        ephemeral: true 
+      });
+    }
+  }
+};
+
+// Status notifications management command
+export const statusNotificationCommand: SlashCommand = {
+  data: {
+    name: 'irc-status-notifications',
+    description: 'Manage IRC status notifications (join/leave/timeout)',
+    defaultMemberPermissions: Permissions.FLAGS.ADMINISTRATOR,
+    options: [
+      {
+        type: 'SUB_COMMAND',
+        name: 'status',
+        description: 'Show status notification configuration'
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'channels',
+        description: 'Show configured notification channels for this server'
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'enable',
+        description: 'Enable status notifications'
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'disable',
+        description: 'Disable status notifications'
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'test',
+        description: 'Send a test notification',
+        options: [
+          {
+            type: 'STRING',
+            name: 'type',
+            description: 'Type of notification to test',
+            required: true,
+            choices: [
+              { name: 'Join', value: 'join' },
+              { name: 'Leave', value: 'leave' },
+              { name: 'Quit', value: 'quit' },
+              { name: 'Kick', value: 'kick' },
+              { name: 'Timeout', value: 'timeout' }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  async execute(interaction: CommandInteraction, bot: Bot) {
+    // Admin permission check
+    if (!interaction.memberPermissions?.has(Permissions.FLAGS.ADMINISTRATOR)) {
+      await interaction.reply({ 
+        content: '❌ You need Administrator permissions to use this command.', 
+        ephemeral: true 
+      });
+      return;
+    }
+
+    try {
+      const subcommand = interaction.options.getSubcommand();
+      
+      switch (subcommand) {
+        case 'status': {
+          const config = bot.statusNotifications.getConfig();
+          
+          const embed = new MessageEmbed()
+            .setTitle('📢 Status Notifications Configuration')
+            .setColor(config.enabled ? '#00ff00' : '#ff9900')
+            .setTimestamp();
+
+          embed.addField('Status', config.enabled ? '✅ Enabled' : '❌ Disabled', true)
+            .addField('Use Dedicated Channels', config.useDedicatedChannels ? 'Yes' : 'No', true)
+            .addField('Fallback to Main', config.fallbackToMainChannel ? 'Yes' : 'No', true)
+            .addField('Include Joins', config.includeJoins ? '✅' : '❌', true)
+            .addField('Include Leaves', config.includeLeaves ? '✅' : '❌', true)
+            .addField('Include Quits', config.includeQuits ? '✅' : '❌', true)
+            .addField('Include Kicks', config.includeKicks ? '✅' : '❌', true)
+            .addField('Include Timeouts', config.includeTimeouts ? '✅' : '❌', true)
+            .addField('Include Bot Events', config.includeBotEvents ? '✅' : '❌', true);
+
+          await interaction.reply({ embeds: [embed], ephemeral: true });
+          break;
+        }
+
+        case 'channels': {
+          if (!interaction.guild) {
+            await interaction.reply({ 
+              content: '❌ This command can only be used in a server.', 
+              ephemeral: true 
+            });
+            return;
+          }
+
+          const channels = bot.statusNotifications.getChannels(interaction.guild.id);
+          
+          const embed = new MessageEmbed()
+            .setTitle('📋 Status Notification Channels')
+            .setColor('#3498db')
+            .setTimestamp();
+
+          if (channels?.joinLeave) {
+            embed.addField('Join/Leave Channel', `<#${channels.joinLeave.id}>`, true);
+          } else {
+            embed.addField('Join/Leave Channel', 'Not configured', true);
+          }
+
+          if (channels?.timeout) {
+            embed.addField('Timeout/Kick Channel', `<#${channels.timeout.id}>`, true);
+          } else {
+            embed.addField('Timeout/Kick Channel', 'Not configured', true);
+          }
+
+          if (!channels?.joinLeave && !channels?.timeout) {
+            embed.setDescription('No dedicated channels configured. Notifications will use the main IRC bridge channels.');
+          }
+
+          await interaction.reply({ embeds: [embed], ephemeral: true });
+          break;
+        }
+
+        case 'enable': {
+          bot.statusNotifications.updateConfig({ enabled: true });
+          await interaction.reply({ 
+            content: '✅ **Status Notifications Enabled**\n\nJoin/leave/quit notifications will now be sent to configured channels.',
+            ephemeral: true 
+          });
+          break;
+        }
+
+        case 'disable': {
+          bot.statusNotifications.updateConfig({ enabled: false });
+          await interaction.reply({ 
+            content: '❌ **Status Notifications Disabled**\n\nNo join/leave/quit notifications will be sent.',
+            ephemeral: true 
+          });
+          break;
+        }
+
+        case 'test': {
+          const notificationType = interaction.options.getString('type', true) as 'join' | 'leave' | 'quit' | 'kick' | 'timeout';
+          const channel = interaction.channel;
+          
+          if (!channel || !channel.isText()) {
+            await interaction.reply({ 
+              content: '❌ This command must be used in a text channel.', 
+              ephemeral: true 
+            });
+            return;
+          }
+
+          let sent = false;
+          const testNick = 'TestUser';
+          const testReason = 'Test notification';
+
+          const textChannel = channel as TextChannel;
+          
+          switch (notificationType) {
+            case 'join':
+              sent = await bot.statusNotifications.sendJoinNotification(testNick, '#testchannel', textChannel);
+              break;
+            case 'leave':
+              sent = await bot.statusNotifications.sendLeaveNotification(testNick, '#testchannel', testReason, textChannel);
+              break;
+            case 'quit':
+              sent = await bot.statusNotifications.sendQuitNotification(testNick, testReason, textChannel);
+              break;
+            case 'kick':
+              sent = await bot.statusNotifications.sendKickNotification(testNick, '#testchannel', testReason, textChannel);
+              break;
+            case 'timeout':
+              sent = await bot.statusNotifications.sendTimeoutNotification(testNick, '#testchannel', testReason, textChannel);
+              break;
+          }
+
+          if (sent) {
+            await interaction.reply({ 
+              content: `✅ **Test Notification Sent**\n\nSent a test ${notificationType} notification.`,
+              ephemeral: true 
+            });
+          } else {
+            await interaction.reply({ 
+              content: `❌ **Test Notification Failed**\n\nFailed to send ${notificationType} notification. Check that notifications are enabled for this type.`,
+              ephemeral: true 
+            });
+          }
+          break;
+        }
+      }
+      
+    } catch (error) {
+      logger.error('Error in status notification command:', error);
+      await interaction.reply({ 
+        content: '❌ Failed to execute status notification command.', 
+        ephemeral: true 
+      });
+    }
+  }
+};
+
 // Export all commands
 export const slashCommands: SlashCommand[] = [
   statusCommand,
@@ -1029,7 +1372,9 @@ export const slashCommands: SlashCommand[] = [
   rateLimitCommand,
   metricsCommand,
   recoveryCommand,
-  s3Command
+  s3Command,
+  mentionCommand,
+  statusNotificationCommand
 ];
 
 // Command registration utility

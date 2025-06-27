@@ -18,6 +18,8 @@ import { MetricsCollector } from './metrics';
 import { MetricsServer } from './metrics-server';
 import { RecoveryManager, RecoveryConfig } from './recovery-manager';
 import { S3Uploader, S3Config } from './s3-uploader';
+import { MentionDetector, MentionConfig } from './mention-detector';
+import { StatusNotificationManager } from './status-notifications';
 
 // Usernames need to be between 2 and 32 characters for webhooks:
 const USERNAME_MIN_LENGTH = 2;
@@ -106,6 +108,12 @@ class Bot {
   
   // S3 file upload service (optional)
   s3Uploader?: S3Uploader;
+  
+  // Mention detection service
+  mentionDetector: MentionDetector;
+  
+  // Status notification manager
+  statusNotifications: StatusNotificationManager;
 
   constructor(options: Record<string, unknown>) {
     for (const field of REQUIRED_FIELDS) {
@@ -256,6 +264,14 @@ class Bot {
         this.s3Uploader = undefined;
       }
     }
+    
+    // Initialize mention detection
+    const mentionConfig = this.loadMentionConfig(options.mentions as Partial<MentionConfig>);
+    this.mentionDetector = new MentionDetector(mentionConfig);
+    
+    // Initialize status notifications
+    const statusConfig = StatusNotificationManager.loadConfig(options);
+    this.statusNotifications = new StatusNotificationManager(statusConfig);
   }
 
   async connect(): Promise<void> {
@@ -535,6 +551,11 @@ class Bot {
       if (this.persistence) {
         await this.persistence.saveMetric('uptime_start', Date.now().toString());
       }
+      
+      // Initialize status notification channels for all guilds
+      for (const guild of this.discord.guilds.cache.values()) {
+        await this.statusNotifications.initializeChannels(guild);
+      }
     });
 
     this.discord.on('error', (error) => {
@@ -676,35 +697,56 @@ class Bot {
     // TODO: almost certainly not async safe
     this.ircClient.on('join', async (channelName, nick) => {
       logger.debug('Received join:', channelName, nick);
-      if (!this.ircStatusNotices) return;
-      if (nick === this.ircClient.nick && !this.announceSelfJoin) return;
+      
       const channel = channelName.toLowerCase();
-      // self-join is announced before names (which includes own nick)
-      // so don't add nick to channelUsers
-      if (nick !== this.ircClient.nick) {
+      const isBotEvent = nick === this.ircClient.nick;
+      
+      // Update channel users tracking
+      if (!isBotEvent) {
         this.channelUsers[channel].add(nick);
         // Save updated channel users to persistence (don't await to avoid blocking)
         this.saveChannelUsersToPersistence(channel).catch((error) => {
           logger.error('Failed to save channel users after join:', error);
         });
       }
-      await this.sendExactToDiscord(
-        channel,
-        `*${nick}* has joined the channel`,
-      );
+      
+      // Send join notification via status notification manager
+      const discordChannel = this.findDiscordChannel(channel);
+      if (discordChannel && isTextChannel(discordChannel as any)) {
+        const sent = await this.statusNotifications.sendJoinNotification(
+          nick,
+          channelName,
+          discordChannel as TextChannel,
+          isBotEvent
+        );
+        
+        // Fallback to legacy system if status notifications are disabled
+        if (!sent && this.ircStatusNotices) {
+          if (!isBotEvent || this.announceSelfJoin) {
+            await this.sendExactToDiscord(
+              channel,
+              `*${nick}* has joined the channel`,
+            );
+          }
+        }
+      }
     });
 
     // TODO: almost certainly not async safe
     this.ircClient.on('part', async (channelName, nick, reason) => {
       logger.debug('Received part:', channelName, nick, reason);
-      if (!this.ircStatusNotices) return;
+      
       const channel = channelName.toLowerCase();
-      // remove list of users when no longer in channel (as it will become out of date)
-      if (nick === this.ircClient.nick) {
+      const isBotEvent = nick === this.ircClient.nick;
+      
+      // Handle bot parting - remove channel user tracking
+      if (isBotEvent) {
         logger.debug('Deleting channelUsers as bot parted:', channel);
         delete this.channelUsers[channel];
         return;
       }
+      
+      // Update channel users tracking
       if (this.channelUsers[channel]) {
         this.channelUsers[channel].delete(nick);
         // Save updated channel users to persistence (don't await to avoid blocking)
@@ -716,18 +758,41 @@ class Bot {
           `No channelUsers found for ${channel} when ${nick} parted.`,
         );
       }
-      await this.sendExactToDiscord(
-        channel,
-        `*${nick}* has left the channel (${reason})`,
-      );
+      
+      // Send leave notification via status notification manager
+      const discordChannel = this.findDiscordChannel(channel);
+      if (discordChannel && isTextChannel(discordChannel as any)) {
+        const sent = await this.statusNotifications.sendLeaveNotification(
+          nick,
+          channelName,
+          reason || '',
+          discordChannel as TextChannel,
+          isBotEvent
+        );
+        
+        // Fallback to legacy system if status notifications are disabled
+        if (!sent && this.ircStatusNotices) {
+          await this.sendExactToDiscord(
+            channel,
+            `*${nick}* has left the channel (${reason})`,
+          );
+        }
+      }
     });
 
     // TODO: almost certainly not async safe
     this.ircClient.on('quit', async (nick, reason, channels) => {
       logger.debug('Received quit:', nick, channels);
-      if (!this.ircStatusNotices || nick === this.ircClient.nick) return;
+      
+      const isBotEvent = nick === this.ircClient.nick;
+      if (isBotEvent) return; // Ignore bot's own quit events
+      
+      const processedChannels = new Set<string>();
+      
       for (const channelName of channels) {
         const channel = channelName.toLowerCase();
+        
+        // Update channel users tracking
         if (!this.channelUsers[channel]) {
           logger.warn(
             `No channelUsers found for ${channel} when ${nick} quit, ignoring.`,
@@ -735,10 +800,27 @@ class Bot {
           continue;
         }
         if (!this.channelUsers[channel].delete(nick)) continue;
-        await this.sendExactToDiscord(
-          channel,
-          `*${nick}* has quit (${reason})`,
-        );
+        
+        // Send quit notification via status notification manager (only once per user)
+        const discordChannel = this.findDiscordChannel(channel);
+        if (discordChannel && isTextChannel(discordChannel as any) && !processedChannels.has(channel)) {
+          processedChannels.add(channel);
+          
+          const sent = await this.statusNotifications.sendQuitNotification(
+            nick,
+            reason || '',
+            discordChannel as TextChannel,
+            isBotEvent
+          );
+          
+          // Fallback to legacy system if status notifications are disabled
+          if (!sent && this.ircStatusNotices) {
+            await this.sendExactToDiscord(
+              channel,
+              `*${nick}* has quit (${reason})`,
+            );
+          }
+        }
       }
     });
 
@@ -1230,7 +1312,9 @@ class Bot {
     }
 
     const { guild } = discordChannel;
-    const withMentions = withFormat
+    
+    // Process @username#discriminator mentions and emoji/channel references first
+    let processedText = withFormat
       // @ts-expect-error TS doesn't seem to see the valid overload of replace here?
       .replace(/@([^\s#]+)#(\d+)/g, (match, username, discriminator) => {
         // @username#1234 => mention
@@ -1268,6 +1352,16 @@ class Bot {
         );
         return chan || match;
       });
+
+    // Apply advanced mention detection for regular usernames
+    const mentionResult = this.mentionDetector.detectMentions(
+      processedText,
+      guild,
+      author,
+      Array.from(guild.members.cache.values())
+    );
+    
+    const withMentions = mentionResult.textWithMentions;
 
     // Webhooks first
     const webhook = this.findWebhook(channel);
@@ -1720,11 +1814,27 @@ class Bot {
       return null;
     }
   }
+
+  /**
+   * Load mention configuration from options and environment variables
+   */
+  private loadMentionConfig(options: Partial<MentionConfig> = {}): Partial<MentionConfig> {
+    return {
+      enabled: options.enabled ?? (process.env.MENTION_DETECTION_ENABLED !== 'false'),
+      caseSensitive: options.caseSensitive ?? (process.env.MENTION_DETECTION_CASE_SENSITIVE === 'true'),
+      requireWordBoundary: options.requireWordBoundary ?? (process.env.MENTION_DETECTION_WORD_BOUNDARY !== 'false'),
+      allowPartialMatches: options.allowPartialMatches ?? (process.env.MENTION_DETECTION_PARTIAL_MATCHES === 'true'),
+      maxLength: options.maxLength ?? (process.env.MENTION_DETECTION_MAX_LENGTH ? parseInt(process.env.MENTION_DETECTION_MAX_LENGTH) : 32),
+      excludePrefixes: options.excludePrefixes ?? (process.env.MENTION_DETECTION_EXCLUDE_PREFIXES ? process.env.MENTION_DETECTION_EXCLUDE_PREFIXES.split(',') : ['@', ':', '/', '#']),
+      excludeSuffixes: options.excludeSuffixes ?? (process.env.MENTION_DETECTION_EXCLUDE_SUFFIXES ? process.env.MENTION_DETECTION_EXCLUDE_SUFFIXES.split(',') : [':', ',', '.', '!', '?']),
+      ...options
+    };
+  }
 }
 
 export const TEST_HACK_CHANNEL = Symbol();
 
 const isTextChannel = (channel: AnyChannel): channel is TextChannel =>
-  channel instanceof BaseGuildTextChannel || TEST_HACK_CHANNEL in channel;
+  channel.type === 'GUILD_TEXT' || TEST_HACK_CHANNEL in channel;
 
 export default Bot;
