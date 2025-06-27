@@ -31,6 +31,8 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.837.0",
+    "@aws-sdk/s3-request-presigner": "^3.837.0",
     "@discordjs/builders": "^1.11.2",
     "discord.js": "^13.8.1",
     "irc-colors": "1.5.0",

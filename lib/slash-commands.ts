@@ -69,6 +69,14 @@ export const statusCommand: SlashCommand = {
       embed.addField('⚠️ Recent Warnings', `${rateLimitStats.recentWarnings}`, true);
       embed.addField('👤 Active Users', `${rateLimitStats.activeUsers}`, true);
 
+      // Recovery health status
+      const recoveryHealth = bot.recoveryManager.getHealthStatus();
+      const discordHealth = recoveryHealth.discord.isHealthy ? '✅' : '❌';
+      const ircHealth = recoveryHealth.irc.isHealthy ? '✅' : '❌';
+      embed.addField('🟦 Discord Health', discordHealth, true);
+      embed.addField('⚫ IRC Health', ircHealth, true);
+      embed.addField('🔄 Recovery Active', recoveryHealth.isRecovering ? '🔄 Yes' : '⏸️ No', true);
+
       // Get some persistence metrics
       if (bot.persistence) {
         try {
@@ -677,6 +685,341 @@ export const metricsCommand: SlashCommand = {
   }
 };
 
+// Recovery management command
+export const recoveryCommand: SlashCommand = {
+  data: {
+    name: 'irc-recovery',
+    description: 'Manage IRC bridge error recovery and connection health',
+    defaultMemberPermissions: Permissions.FLAGS.ADMINISTRATOR,
+    options: [
+      {
+        type: 'SUB_COMMAND',
+        name: 'status',
+        description: 'Show connection health and recovery status'
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'force',
+        description: 'Force manual recovery attempt',
+        options: [
+          {
+            type: 'STRING',
+            name: 'service',
+            description: 'Service to recover (discord or irc)',
+            required: true,
+            choices: [
+              { name: 'Discord', value: 'discord' },
+              { name: 'IRC', value: 'irc' }
+            ]
+          }
+        ]
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'reset',
+        description: 'Reset circuit breaker for a service',
+        options: [
+          {
+            type: 'STRING',
+            name: 'service',
+            description: 'Service to reset (discord or irc)',
+            required: true,
+            choices: [
+              { name: 'Discord', value: 'discord' },
+              { name: 'IRC', value: 'irc' }
+            ]
+          }
+        ]
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'history',
+        description: 'Show recent recovery attempts'
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'clear',
+        description: 'Clear recovery history'
+      }
+    ]
+  },
+  async execute(interaction: CommandInteraction, bot: Bot) {
+    // Admin permission check
+    if (!interaction.memberPermissions?.has(Permissions.FLAGS.ADMINISTRATOR)) {
+      await interaction.reply({ 
+        content: '❌ You need Administrator permissions to use this command.', 
+        ephemeral: true 
+      });
+      return;
+    }
+
+    try {
+      const subcommand = interaction.options.getSubcommand();
+      
+      switch (subcommand) {
+        case 'status': {
+          const health = bot.recoveryManager.getHealthStatus();
+          const stats = bot.recoveryManager.getStatistics();
+          
+          const embed = new MessageEmbed()
+            .setTitle('🏥 Connection Health & Recovery Status')
+            .setColor(health.discord.isHealthy && health.irc.isHealthy ? '#00ff00' : '#ff9900')
+            .setTimestamp();
+
+          // Discord status
+          const discordStatus = health.discord.isHealthy ? '✅ Healthy' : '❌ Unhealthy';
+          const discordInfo = [
+            `Status: ${discordStatus}`,
+            `Failures: ${health.discord.consecutiveFailures}/${health.discord.totalFailures}`,
+            `Last Success: <t:${Math.floor(health.discord.lastSuccessful / 1000)}:R>`
+          ].join('\n');
+          embed.addField('🟦 Discord', discordInfo, true);
+
+          // IRC status  
+          const ircStatus = health.irc.isHealthy ? '✅ Healthy' : '❌ Unhealthy';
+          const ircInfo = [
+            `Status: ${ircStatus}`,
+            `Failures: ${health.irc.consecutiveFailures}/${health.irc.totalFailures}`,
+            `Last Success: <t:${Math.floor(health.irc.lastSuccessful / 1000)}:R>`
+          ].join('\n');
+          embed.addField('⚫ IRC', ircInfo, true);
+
+          // Recovery stats
+          const recoveryInfo = [
+            `Total Attempts: ${stats.totalRecoveryAttempts}`,
+            `Successful: ${stats.successfulRecoveries}`,
+            `Failed: ${stats.failedRecoveries}`,
+            `Avg Time: ${stats.averageRecoveryTime.toFixed(0)}ms`
+          ].join('\n');
+          embed.addField('🔄 Recovery Stats', recoveryInfo, true);
+
+          // Circuit breakers
+          const breakerCount = Object.keys(health.circuitBreakers).length;
+          const breakerStatus = breakerCount > 0 
+            ? `🚫 ${breakerCount} active` 
+            : '✅ All clear';
+          embed.addField('⚡ Circuit Breakers', breakerStatus, true);
+
+          // Recovery status
+          const recoveryStatus = health.isRecovering ? '🔄 In Progress' : '⏸️ Idle';
+          embed.addField('🔧 Recovery Process', recoveryStatus, true);
+
+          await interaction.reply({ embeds: [embed], ephemeral: true });
+          break;
+        }
+
+        case 'force': {
+          const service = interaction.options.getString('service', true) as 'discord' | 'irc';
+          
+          try {
+            await interaction.deferReply({ ephemeral: true });
+            
+            await bot.recoveryManager.forceRecovery(service);
+            
+            await interaction.editReply({ 
+              content: `✅ **Manual Recovery Successful**\n\nSuccessfully forced recovery for ${service}.` 
+            });
+          } catch (error) {
+            await interaction.editReply({ 
+              content: `❌ **Manual Recovery Failed**\n\nFailed to force recovery for ${service}: ${(error as Error).message}` 
+            });
+          }
+          break;
+        }
+
+        case 'reset': {
+          const service = interaction.options.getString('service', true) as 'discord' | 'irc';
+          
+          bot.recoveryManager.resetCircuitBreaker(service);
+          
+          await interaction.reply({ 
+            content: `🔓 **Circuit Breaker Reset**\n\nCircuit breaker for ${service} has been manually reset.`,
+            ephemeral: true 
+          });
+          break;
+        }
+
+        case 'history': {
+          const health = bot.recoveryManager.getHealthStatus();
+          
+          if (health.recoveryHistory.length === 0) {
+            await interaction.reply({ 
+              content: '📝 **Recovery History**\n\nNo recent recovery attempts found.',
+              ephemeral: true 
+            });
+            return;
+          }
+
+          const embed = new MessageEmbed()
+            .setTitle('📝 Recent Recovery Attempts')
+            .setColor('#3498db')
+            .setTimestamp();
+
+          const historyList = health.recoveryHistory.slice(-10).map(attempt => {
+            const status = attempt.success ? '✅' : '❌';
+            const timestamp = `<t:${Math.floor(attempt.timestamp / 1000)}:t>`;
+            const delay = `${attempt.delay}ms`;
+            return `${status} Attempt #${attempt.attempt} at ${timestamp} (${delay} delay)`;
+          }).join('\n');
+
+          embed.setDescription(historyList);
+          
+          if (health.recoveryHistory.length > 10) {
+            embed.setFooter({ text: `Showing last 10 of ${health.recoveryHistory.length} attempts` });
+          }
+
+          await interaction.reply({ embeds: [embed], ephemeral: true });
+          break;
+        }
+
+        case 'clear': {
+          bot.recoveryManager.clearHistory();
+          
+          await interaction.reply({ 
+            content: '🗑️ **Recovery History Cleared**\n\nAll recovery history has been cleared.',
+            ephemeral: true 
+          });
+          break;
+        }
+      }
+      
+    } catch (error) {
+      logger.error('Error in recovery command:', error);
+      await interaction.reply({ 
+        content: '❌ Failed to execute recovery command.', 
+        ephemeral: true 
+      });
+    }
+  }
+};
+
+// S3 management command
+export const s3Command: SlashCommand = {
+  data: {
+    name: 'irc-s3',
+    description: 'Manage S3 file upload settings',
+    defaultMemberPermissions: Permissions.FLAGS.ADMINISTRATOR,
+    options: [
+      {
+        type: 'SUB_COMMAND',
+        name: 'status',
+        description: 'Show S3 upload configuration and status'
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'test',
+        description: 'Test S3 connection and upload functionality'
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'stats',
+        description: 'Show S3 upload statistics'
+      }
+    ]
+  },
+  async execute(interaction: CommandInteraction, bot: Bot) {
+    // Admin permission check
+    if (!interaction.memberPermissions?.has(Permissions.FLAGS.ADMINISTRATOR)) {
+      await interaction.reply({ 
+        content: '❌ You need Administrator permissions to use this command.', 
+        ephemeral: true 
+      });
+      return;
+    }
+
+    try {
+      const subcommand = interaction.options.getSubcommand();
+      
+      switch (subcommand) {
+        case 'status': {
+          const embed = new MessageEmbed()
+            .setTitle('📁 S3 Upload Configuration')
+            .setTimestamp();
+
+          if (bot.s3Uploader) {
+            embed.setColor('#00ff00')
+              .addField('Status', '✅ Enabled and Active', true)
+              .addField('Upload Method', 'S3-compatible bucket', true)
+              .setDescription('S3 uploads are configured and active. Discord attachments will be uploaded to your S3 bucket and shared via S3 URLs instead of Discord CDN links.');
+          } else {
+            embed.setColor('#ff9900')
+              .addField('Status', '❌ Disabled', true)
+              .addField('Reason', 'Configuration missing or invalid', true)
+              .setDescription('S3 uploads are not configured. Add S3 configuration via environment variables or config file to enable this feature.')
+              .addField('Required Environment Variables', 
+                '`S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`', false)
+              .addField('Optional Environment Variables', 
+                '`S3_ENDPOINT` (for S3-compatible services)\n`S3_PUBLIC_URL_BASE` (custom CDN URL)\n`S3_KEY_PREFIX` (file path prefix)\n`S3_FORCE_PATH_STYLE=true` (for some S3-compatible services)', false);
+          }
+
+          await interaction.reply({ embeds: [embed], ephemeral: true });
+          break;
+        }
+
+        case 'test': {
+          if (!bot.s3Uploader) {
+            await interaction.reply({ 
+              content: '❌ **S3 Upload Test Failed**\n\nS3 uploader is not configured. Please check your S3 configuration and restart the bot.',
+              ephemeral: true 
+            });
+            return;
+          }
+
+          await interaction.deferReply({ ephemeral: true });
+
+          try {
+            const testResult = await bot.s3Uploader.testConnection();
+            
+            if (testResult.success) {
+              await interaction.editReply({ 
+                content: '✅ **S3 Upload Test Successful**\n\nS3 connection is working properly. Test file was uploaded successfully.' 
+              });
+            } else {
+              await interaction.editReply({ 
+                content: `❌ **S3 Upload Test Failed**\n\nError: ${testResult.error}\n\nPlease check your S3 configuration and credentials.` 
+              });
+            }
+          } catch (error) {
+            await interaction.editReply({ 
+              content: `❌ **S3 Upload Test Failed**\n\nUnexpected error: ${(error as Error).message}` 
+            });
+          }
+          break;
+        }
+
+        case 'stats': {
+          // Get S3-related metrics from the metrics collector
+          const detailed = bot.metrics.getDetailedMetrics();
+          
+          const embed = new MessageEmbed()
+            .setTitle('📊 S3 Upload Statistics')
+            .setColor('#3498db')
+            .addField('Total Attachments Processed', `${detailed.attachmentsSent}`, true)
+            .setTimestamp();
+
+          if (bot.s3Uploader) {
+            embed.addField('S3 Status', '✅ Active', true)
+              .setDescription('S3 uploads are active. Attachment statistics include both S3 and fallback Discord URLs.');
+          } else {
+            embed.addField('S3 Status', '❌ Disabled', true)
+              .setDescription('S3 uploads are disabled. All attachments use Discord CDN URLs.');
+          }
+
+          await interaction.reply({ embeds: [embed], ephemeral: true });
+          break;
+        }
+      }
+      
+    } catch (error) {
+      logger.error('Error in S3 command:', error);
+      await interaction.reply({ 
+        content: '❌ Failed to execute S3 command.', 
+        ephemeral: true 
+      });
+    }
+  }
+};
+
 // Export all commands
 export const slashCommands: SlashCommand[] = [
   statusCommand,
@@ -684,7 +1027,9 @@ export const slashCommands: SlashCommand[] = [
   pmCommand,
   reconnectCommand,
   rateLimitCommand,
-  metricsCommand
+  metricsCommand,
+  recoveryCommand,
+  s3Command
 ];
 
 // Command registration utility

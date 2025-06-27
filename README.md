@@ -58,6 +58,23 @@ Instead of using a configuration file, you can configure the bot using environme
 - `PM_THREAD_PREFIX` - Prefix for PM thread names (default: `"PM: "`)
 - `PM_AUTO_ARCHIVE` - Auto-archive threads after N minutes of inactivity (default: `60`)
 
+**S3 File Upload Variables (Optional):**
+- `S3_REGION` - AWS region for S3 bucket (e.g., `us-east-1`)
+- `S3_BUCKET` - S3 bucket name for file uploads
+- `S3_ACCESS_KEY_ID` - AWS access key ID (or compatible service)
+- `S3_SECRET_ACCESS_KEY` - AWS secret access key (or compatible service)
+- `S3_ENDPOINT` - Custom S3 endpoint for S3-compatible services (e.g., DigitalOcean Spaces, MinIO)
+- `S3_PUBLIC_URL_BASE` - Custom public URL base for uploaded files (e.g., CDN domain)
+- `S3_KEY_PREFIX` - Prefix for all uploaded file keys (e.g., `discord-uploads/`)
+- `S3_FORCE_PATH_STYLE` - Set to `true` for S3-compatible services that require path-style URLs
+- `S3_SIGNED_URL_EXPIRY` - Signed URL expiry time in seconds (default: `3600`)
+
+When S3 is configured, Discord attachments will be automatically uploaded to your S3 bucket and shared via S3 URLs instead of Discord CDN links. This is useful for:
+- Long-term file storage (Discord CDN links may expire)
+- Custom domains/CDN integration
+- File analytics and access control
+- Compliance with data retention policies
+
 The Railway deployment includes a health check endpoint at `/health` for monitoring.
 
 ## Configuration

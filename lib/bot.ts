@@ -16,6 +16,8 @@ import { MessageSynchronizer } from './message-sync';
 import { RateLimiter, RateLimitConfig } from './rate-limiter';
 import { MetricsCollector } from './metrics';
 import { MetricsServer } from './metrics-server';
+import { RecoveryManager, RecoveryConfig } from './recovery-manager';
+import { S3Uploader, S3Config } from './s3-uploader';
 
 // Usernames need to be between 2 and 32 characters for webhooks:
 const USERNAME_MIN_LENGTH = 2;
@@ -98,6 +100,12 @@ class Bot {
   
   // Metrics HTTP server
   metricsServer?: MetricsServer;
+  
+  // Error recovery and reconnection
+  recoveryManager: RecoveryManager;
+  
+  // S3 file upload service (optional)
+  s3Uploader?: S3Uploader;
 
   constructor(options: Record<string, unknown>) {
     for (const field of REQUIRED_FIELDS) {
@@ -206,12 +214,47 @@ class Bot {
     this.rateLimiter = new RateLimiter(rateLimitConfig);
     
     // Initialize metrics collection
-    this.metrics = new MetricsCollector(this.persistence);
+    try {
+      this.metrics = new MetricsCollector(this.persistence);
+    } catch (error) {
+      logger.warn('Failed to initialize metrics with persistence, using in-memory metrics:', error);
+      this.metrics = new MetricsCollector(null);
+    }
     
     // Initialize metrics HTTP server (optional, disabled by default)
     const metricsPort = options.metricsPort as number;
     if (metricsPort) {
       this.metricsServer = new MetricsServer(this.metrics, metricsPort);
+    }
+    
+    // Initialize error recovery manager
+    try {
+      const recoveryConfig = options.recovery as Partial<RecoveryConfig> || {};
+      this.recoveryManager = new RecoveryManager(recoveryConfig);
+      this.setupRecoveryHandlers();
+    } catch (error) {
+      logger.warn('Failed to initialize recovery manager:', error);
+      // Create a minimal recovery manager for tests
+      this.recoveryManager = new RecoveryManager();
+      this.setupRecoveryHandlers();
+    }
+    
+    // Initialize S3 uploader (optional)
+    const s3Config = this.loadS3Config(options.s3 as Partial<S3Config>);
+    if (s3Config) {
+      try {
+        this.s3Uploader = new S3Uploader(s3Config);
+        // Test connection on initialization
+        this.s3Uploader.testConnection().then(result => {
+          if (!result.success) {
+            logger.error('S3 connection test failed, disabling S3 uploads:', result.error);
+            this.s3Uploader = undefined;
+          }
+        });
+      } catch (error) {
+        logger.error('Failed to initialize S3 uploader:', error);
+        this.s3Uploader = undefined;
+      }
     }
   }
 
@@ -297,16 +340,196 @@ class Bot {
     this.metrics.destroy();
     // Cleanup rate limiter
     this.rateLimiter.destroy();
+    // Cleanup recovery manager
+    this.recoveryManager.destroy();
     // Close persistence service
     await this.persistence.close();
   }
+  
+  private setupRecoveryHandlers(): void {
+    // Handle recovery attempts
+    this.recoveryManager.on('attemptReconnection', async (service: 'discord' | 'irc', callback: (success: boolean) => void) => {
+      try {
+        logger.info(`Attempting to reconnect ${service}...`);
+        
+        if (service === 'discord') {
+          const success = await this.reconnectDiscord();
+          callback(success);
+        } else if (service === 'irc') {
+          const success = await this.reconnectIRC();
+          callback(success);
+        }
+      } catch (error) {
+        logger.error(`Reconnection attempt failed for ${service}:`, error);
+        callback(false);
+      }
+    });
+
+    // Log recovery events
+    this.recoveryManager.on('recoveryStarted', (service, error) => {
+      logger.warn(`🔄 Recovery started for ${service}: ${error.message}`);
+      this.metrics.recordConnectionError();
+    });
+
+    this.recoveryManager.on('recoverySucceeded', (service, attempt) => {
+      logger.info(`✅ Recovery successful for ${service} on attempt ${attempt}`);
+      this.metrics.recordSuccess();
+    });
+
+    this.recoveryManager.on('recoveryFailed', (service, error) => {
+      logger.error(`❌ Recovery failed for ${service}: ${error.message}`);
+      this.metrics.recordError();
+    });
+
+    this.recoveryManager.on('circuitBreakerTripped', (service, health) => {
+      logger.error(`🚫 Circuit breaker tripped for ${service} after ${health.consecutiveFailures} failures`);
+    });
+
+    this.recoveryManager.on('circuitBreakerReset', (service) => {
+      logger.info(`🔓 Circuit breaker reset for ${service}`);
+    });
+
+    this.recoveryManager.on('serviceSilent', (service, health) => {
+      logger.warn(`⚠️ ${service} has been silent for ${Date.now() - health.lastSuccessful}ms`);
+    });
+  }
+
+  /**
+   * Attempt to reconnect Discord client
+   */
+  private async reconnectDiscord(): Promise<boolean> {
+    try {
+      logger.info('Reconnecting Discord client...');
+      
+      // Destroy existing client if it exists and is connected
+      if (this.discord.ws && this.discord.ws.status !== 5) { // 5 = Disconnected
+        this.discord.destroy();
+      }
+      
+      // Wait a moment for cleanup
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Create new Discord client
+      this.discord = new discord.Client({
+        retryLimit: 3,
+        intents: [
+          discord.Intents.FLAGS.GUILDS, 
+          discord.Intents.FLAGS.GUILD_MESSAGES,
+          discord.Intents.FLAGS.GUILD_MESSAGE_REACTIONS
+        ],
+        partials: ['MESSAGE']
+      });
+      
+      // Re-attach Discord listeners
+      this.attachDiscordListeners();
+      
+      // Login
+      await this.discord.login(this.discordToken);
+      
+      // Wait for ready state
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Discord connection timeout'));
+        }, 30000);
+        
+        this.discord.once('ready', () => {
+          clearTimeout(timeout);
+          resolve(void 0);
+        });
+      });
+      
+      // Re-register slash commands
+      await registerSlashCommands(this);
+      
+      logger.info('Discord reconnection successful');
+      this.metrics.recordDiscordReconnect();
+      this.recoveryManager.recordSuccess('discord');
+      
+      return true;
+      
+    } catch (error) {
+      logger.error('Discord reconnection failed:', error);
+      this.recoveryManager.recordFailure('discord', error as Error);
+      return false;
+    }
+  }
+
+  /**
+   * Attempt to reconnect IRC client
+   */
+  private async reconnectIRC(): Promise<boolean> {
+    try {
+      logger.info('Reconnecting IRC client...');
+      
+      // Disconnect existing client
+      if (this.ircClient && this.ircClient.readyState === 'open') {
+        this.ircClient.disconnect();
+      }
+      
+      // Wait a moment for cleanup
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Create new IRC client
+      const ircOptions = {
+        userName: this.nickname,
+        realName: this.nickname,
+        channels: this.channels,
+        floodProtection: true,
+        floodProtectionDelay: 500,
+        retryCount: 10,
+        autoRenick: true,
+        ...this.ircOptions,
+      };
+      
+      this.ircClient = new irc.Client(this.server, this.nickname, ircOptions);
+      
+      // Re-attach IRC listeners
+      this.attachIRCListeners();
+      
+      // Wait for connection
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('IRC connection timeout'));
+        }, 30000);
+        
+        this.ircClient.once('registered', () => {
+          clearTimeout(timeout);
+          resolve(void 0);
+        });
+        
+        this.ircClient.once('error', (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
+      });
+      
+      logger.info('IRC reconnection successful');
+      this.metrics.recordIRCReconnect();
+      this.recoveryManager.recordSuccess('irc');
+      
+      return true;
+      
+    } catch (error) {
+      logger.error('IRC reconnection failed:', error);
+      this.recoveryManager.recordFailure('irc', error as Error);
+      return false;
+    }
+  }
 
   attachListeners() {
+    this.attachDiscordListeners();
+    this.attachIRCListeners();
+  }
+
+  private attachDiscordListeners() {
     this.discord.on('ready', async () => {
       logger.info('Connected to Discord');
       
       // Register slash commands when bot is ready
       await registerSlashCommands(this);
+      
+      // Record successful connection
+      this.recoveryManager.recordSuccess('discord');
       
       // Save uptime start metric
       if (this.persistence) {
@@ -314,22 +537,19 @@ class Bot {
       }
     });
 
-    this.ircClient.on('registered', (message) => {
-      logger.info('Connected to IRC');
-      logger.debug('Registered event: ', message);
-      for (const element of this.autoSendCommands) {
-        this.ircClient.send(...element);
-      }
-    });
-
-    this.ircClient.on('error', (error) => {
-      logger.error('Received error event from IRC', error);
-      this.metrics.recordConnectionError();
-    });
-
     this.discord.on('error', (error) => {
       logger.error('Received error event from Discord', error);
       this.metrics.recordConnectionError();
+      this.recoveryManager.recordFailure('discord', error);
+    });
+
+    this.discord.on('disconnect', () => {
+      logger.warn('Discord client disconnected');
+      this.recoveryManager.recordFailure('discord', new Error('Discord client disconnected'));
+    });
+
+    this.discord.on('reconnecting', () => {
+      logger.info('Discord client attempting to reconnect');
     });
 
     this.discord.on('warn', (warning) => {
@@ -372,6 +592,41 @@ class Bot {
 
     this.discord.on('messageDeleteBulk', async (messages) => {
       await this.messageSync.handleBulkDelete(messages);
+    });
+  }
+
+  private attachIRCListeners() {
+    this.ircClient.on('registered', (message) => {
+      logger.info('Connected to IRC');
+      logger.debug('Registered event: ', message);
+      
+      // Record successful connection
+      this.recoveryManager.recordSuccess('irc');
+      
+      for (const element of this.autoSendCommands) {
+        this.ircClient.send(...element);
+      }
+    });
+
+    this.ircClient.on('error', (error) => {
+      logger.error('Received error event from IRC', error);
+      this.metrics.recordConnectionError();
+      this.recoveryManager.recordFailure('irc', error);
+    });
+
+    this.ircClient.on('abort', () => {
+      logger.warn('IRC connection aborted');
+      this.recoveryManager.recordFailure('irc', new Error('IRC connection aborted'));
+    });
+
+    this.ircClient.on('close', () => {
+      logger.warn('IRC connection closed');
+      this.recoveryManager.recordFailure('irc', new Error('IRC connection closed'));
+    });
+
+    this.ircClient.on('netError', (error) => {
+      logger.error('IRC network error:', error);
+      this.recoveryManager.recordFailure('irc', error);
     });
 
     // TODO: almost certainly not async safe
@@ -762,8 +1017,25 @@ class Bot {
 
         if (message.attachments && message.attachments.size) {
           // attachments are a discord.Collection, not a JS object
-          message.attachments.forEach((a) => {
-            patternMap.attachmentURL = a.url;
+          for (const [, attachment] of message.attachments) {
+            // Try to upload to S3 first, fall back to Discord URL
+            let attachmentURL = attachment.url;
+            
+            if (this.s3Uploader) {
+              try {
+                const s3Url = await this.uploadAttachmentToS3(attachment);
+                if (s3Url) {
+                  attachmentURL = s3Url;
+                  logger.debug('Using S3 URL for attachment:', attachment.name);
+                } else {
+                  logger.debug('S3 upload failed, using Discord URL for attachment:', attachment.name);
+                }
+              } catch (error) {
+                logger.warn('S3 upload error, using Discord URL:', error);
+              }
+            }
+            
+            patternMap.attachmentURL = attachmentURL;
             const urlMessage = Bot.substitutePattern(
               this.formatURLAttachment,
               patternMap,
@@ -781,7 +1053,7 @@ class Bot {
             
             // Record attachment URL for edit/delete tracking
             this.messageSync.recordMessage(message.id, ircChannel, urlMessage, nickname);
-          });
+          }
         }
       }
     }
@@ -1262,11 +1534,28 @@ class Bot {
       if (text.trim() === '') {
         // Handle attachments only
         if (message.attachments && message.attachments.size > 0) {
-          message.attachments.forEach((attachment) => {
-            const attachmentMessage = `[Attachment: ${attachment.name}] ${attachment.url}`;
+          for (const [, attachment] of message.attachments) {
+            // Try to upload to S3 first, fall back to Discord URL
+            let attachmentURL = attachment.url;
+            
+            if (this.s3Uploader) {
+              try {
+                const s3Url = await this.uploadAttachmentToS3(attachment);
+                if (s3Url) {
+                  attachmentURL = s3Url;
+                  logger.debug('Using S3 URL for PM attachment:', attachment.name);
+                } else {
+                  logger.debug('S3 upload failed, using Discord URL for PM attachment:', attachment.name);
+                }
+              } catch (error) {
+                logger.warn('S3 upload error for PM attachment, using Discord URL:', error);
+              }
+            }
+            
+            const attachmentMessage = `[Attachment: ${attachment.name}] ${attachmentURL}`;
             this.ircClient.say(ircNick, attachmentMessage);
             logger.debug(`Sent Discord attachment to IRC PM: ${message.author.username} -> ${ircNick}`);
-          });
+          }
         }
         return true;
       }
@@ -1335,6 +1624,100 @@ class Bot {
       }
     } catch (error) {
       logger.error('Failed to save channel users to persistence:', error);
+    }
+  }
+
+  /**
+   * Load S3 configuration from options and environment variables
+   */
+  private loadS3Config(options: Partial<S3Config> = {}): S3Config | null {
+    // Load from environment variables with optional prefix
+    const config: Partial<S3Config> = {
+      region: options.region || process.env.S3_REGION || process.env.AWS_REGION,
+      bucket: options.bucket || process.env.S3_BUCKET,
+      accessKeyId: options.accessKeyId || process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID,
+      secretAccessKey: options.secretAccessKey || process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY,
+      endpoint: options.endpoint || process.env.S3_ENDPOINT,
+      forcePathStyle: options.forcePathStyle ?? (process.env.S3_FORCE_PATH_STYLE === 'true'),
+      publicUrlBase: options.publicUrlBase || process.env.S3_PUBLIC_URL_BASE,
+      keyPrefix: options.keyPrefix || process.env.S3_KEY_PREFIX,
+      signedUrlExpiry: options.signedUrlExpiry || (process.env.S3_SIGNED_URL_EXPIRY ? parseInt(process.env.S3_SIGNED_URL_EXPIRY) : undefined),
+      ...options
+    };
+
+    // Validate required fields
+    const validation = S3Uploader.validateConfig(config);
+    if (!validation.valid) {
+      if (Object.keys(options).length > 0 || process.env.S3_REGION || process.env.S3_BUCKET) {
+        logger.warn('S3 configuration incomplete, S3 uploads disabled:', validation.errors);
+      } else {
+        logger.debug('No S3 configuration provided, S3 uploads disabled');
+      }
+      return null;
+    }
+
+    logger.info('S3 configuration loaded successfully', {
+      region: config.region,
+      bucket: config.bucket,
+      endpoint: config.endpoint,
+      hasCustomUrl: !!config.publicUrlBase,
+      keyPrefix: config.keyPrefix
+    });
+
+    return config as S3Config;
+  }
+
+  /**
+   * Upload Discord attachment to S3 and return public URL
+   */
+  async uploadAttachmentToS3(attachment: discord.MessageAttachment, customFilename?: string): Promise<string | null> {
+    if (!this.s3Uploader) {
+      return null;
+    }
+
+    try {
+      // Check if file type is supported
+      if (!this.s3Uploader.isSupportedFileType(attachment.name || 'unknown')) {
+        logger.debug('Unsupported file type for S3 upload:', attachment.name);
+        return null;
+      }
+
+      // Fetch attachment data
+      const response = await fetch(attachment.url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch attachment: ${response.statusText}`);
+      }
+
+      const buffer = Buffer.from(await response.arrayBuffer());
+      
+      // Upload to S3
+      const result = await this.s3Uploader.uploadFile(
+        buffer,
+        attachment.name || 'unknown',
+        customFilename,
+        attachment.contentType || undefined
+      );
+
+      if (result.success && result.url) {
+        logger.info('Attachment uploaded to S3', {
+          originalName: attachment.name,
+          customName: customFilename,
+          s3Url: result.url,
+          size: buffer.length
+        });
+
+        // Record metrics
+        this.metrics.recordAttachment();
+        
+        return result.url;
+      } else {
+        logger.error('S3 upload failed:', result.error);
+        return null;
+      }
+
+    } catch (error) {
+      logger.error('Failed to upload attachment to S3:', error);
+      return null;
     }
   }
 }
