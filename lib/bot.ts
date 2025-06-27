@@ -13,6 +13,9 @@ import { formatFromDiscordToIRC, formatFromIRCToDiscord } from './formatting';
 import { PersistenceService } from './persistence';
 import { registerSlashCommands, handleSlashCommand } from './slash-commands';
 import { MessageSynchronizer } from './message-sync';
+import { RateLimiter, RateLimitConfig } from './rate-limiter';
+import { MetricsCollector } from './metrics';
+import { MetricsServer } from './metrics-server';
 
 // Usernames need to be between 2 and 32 characters for webhooks:
 const USERNAME_MIN_LENGTH = 2;
@@ -86,6 +89,15 @@ class Bot {
   
   // Message synchronization
   messageSync: MessageSynchronizer;
+  
+  // Rate limiting
+  rateLimiter: RateLimiter;
+  
+  // Metrics collection
+  metrics: MetricsCollector;
+  
+  // Metrics HTTP server
+  metricsServer?: MetricsServer;
 
   constructor(options: Record<string, unknown>) {
     for (const field of REQUIRED_FIELDS) {
@@ -188,6 +200,19 @@ class Bot {
     
     // Initialize message synchronization
     this.messageSync = new MessageSynchronizer(this);
+    
+    // Initialize rate limiting
+    const rateLimitConfig = options.rateLimiting as Partial<RateLimitConfig> || {};
+    this.rateLimiter = new RateLimiter(rateLimitConfig);
+    
+    // Initialize metrics collection
+    this.metrics = new MetricsCollector(this.persistence);
+    
+    // Initialize metrics HTTP server (optional, disabled by default)
+    const metricsPort = options.metricsPort as number;
+    if (metricsPort) {
+      this.metricsServer = new MetricsServer(this.metrics, metricsPort);
+    }
   }
 
   async connect(): Promise<void> {
@@ -249,6 +274,11 @@ class Bot {
 
     this.ircClient = new irc.Client(this.server, this.nickname, ircOptions);
     this.attachListeners();
+    
+    // Start metrics HTTP server if configured
+    if (this.metricsServer) {
+      this.metricsServer.start();
+    }
   }
 
   async disconnect() {
@@ -259,6 +289,14 @@ class Bot {
     }
     // Save message sync history to persistence
     await this.messageSync.saveHistoryToPersistence();
+    // Stop metrics HTTP server
+    if (this.metricsServer) {
+      this.metricsServer.stop();
+    }
+    // Cleanup metrics collector
+    this.metrics.destroy();
+    // Cleanup rate limiter
+    this.rateLimiter.destroy();
     // Close persistence service
     await this.persistence.close();
   }
@@ -286,10 +324,12 @@ class Bot {
 
     this.ircClient.on('error', (error) => {
       logger.error('Received error event from IRC', error);
+      this.metrics.recordConnectionError();
     });
 
     this.discord.on('error', (error) => {
       logger.error('Received error event from Discord', error);
+      this.metrics.recordConnectionError();
     });
 
     this.discord.on('warn', (warning) => {
@@ -578,7 +618,7 @@ class Bot {
     );
   }
 
-  sendToIRC(message: discord.Message) {
+  async sendToIRC(message: discord.Message) {
     const { author } = message;
     // Ignore messages sent by the bot itself:
     if (
@@ -592,6 +632,39 @@ class Bot {
     // Do not send to IRC if this user is on the ignore list.
     if (this.ignoredDiscordUser(author)) {
       return;
+    }
+
+    // Check rate limiting
+    const messageContent = this.parseText(message);
+    const rateLimitResult = this.rateLimiter.checkMessage(
+      author.id, 
+      author.username, 
+      messageContent
+    );
+    
+    if (rateLimitResult) {
+      logger.warn(`Message from ${author.username} (${author.id}) blocked by rate limiter: ${rateLimitResult}`);
+      
+      // Record blocked message
+      this.metrics.recordMessageBlocked();
+      if (rateLimitResult.includes('warning')) {
+        this.metrics.recordUserWarned();
+      } else if (rateLimitResult.includes('blocked')) {
+        this.metrics.recordUserBlocked();
+      }
+      if (rateLimitResult.includes('spam')) {
+        this.metrics.recordSpamDetected();
+      }
+      
+      // Send warning to Discord user via DM (optional, can be disabled)
+      try {
+        const warningMessage = `⚠️ **Rate Limit Warning**\n\n${rateLimitResult}\n\nPlease slow down your message sending rate.`;
+        await author.send(warningMessage);
+      } catch (error) {
+        logger.debug(`Could not send rate limit warning DM to ${author.username}:`, error);
+      }
+      
+      return; // Block the message
     }
 
     if (!isTextChannel(message.channel)) return;
@@ -609,7 +682,7 @@ class Bot {
     if (ircChannel) {
       const fromGuild = message.guild;
       const nickname = Bot.getDiscordNicknameOnServer(author, fromGuild);
-      let text = this.parseText(message);
+      let text = messageContent; // Already parsed for rate limiting
       let displayUsername = nickname;
 
       if (this.parallelPingFix) {
@@ -655,6 +728,10 @@ class Bot {
         }
         this.ircClient.say(ircChannel, text);
         
+        // Record metrics
+        this.metrics.recordDiscordToIRC(author.id, ircChannel);
+        this.metrics.recordCommand();
+        
         // Record command message for edit/delete tracking
         this.messageSync.recordMessage(message.id, ircChannel, text, nickname);
       } else {
@@ -676,6 +753,11 @@ class Bot {
               this.messageSync.recordMessage(message.id, ircChannel, sentence, nickname);
             }
           }
+          
+          // Record metrics for the whole message (not per sentence)
+          if (sentences.some(s => formatFromDiscordToIRC(s))) {
+            this.metrics.recordDiscordToIRC(author.id, ircChannel);
+          }
         }
 
         if (message.attachments && message.attachments.size) {
@@ -693,6 +775,9 @@ class Bot {
               urlMessage,
             );
             this.ircClient.say(ircChannel, urlMessage);
+            
+            // Record attachment metrics
+            this.metrics.recordAttachment();
             
             // Record attachment URL for edit/delete tracking
             this.messageSync.recordMessage(message.id, ircChannel, urlMessage, nickname);
@@ -803,6 +888,37 @@ class Bot {
       return;
     }
 
+    // Check rate limiting for IRC users
+    const rateLimitResult = this.rateLimiter.checkMessage(
+      `irc:${author}`, // Use IRC nickname with prefix to distinguish from Discord IDs
+      author,
+      text
+    );
+    
+    if (rateLimitResult) {
+      logger.warn(`Message from IRC user ${author} blocked by rate limiter: ${rateLimitResult}`);
+      
+      // Record blocked message metrics
+      this.metrics.recordMessageBlocked();
+      if (rateLimitResult.includes('warning')) {
+        this.metrics.recordUserWarned();
+      } else if (rateLimitResult.includes('blocked')) {
+        this.metrics.recordUserBlocked();
+      }
+      if (rateLimitResult.includes('spam')) {
+        this.metrics.recordSpamDetected();
+      }
+      
+      // Send warning to IRC user via private message
+      try {
+        this.ircClient.say(author, `⚠️ Rate Limit Warning: ${rateLimitResult}. Please slow down your message sending rate.`);
+      } catch (error) {
+        logger.debug(`Could not send rate limit warning PM to ${author}:`, error);
+      }
+      
+      return; // Block the message
+    }
+
     // Convert text formatting (bold, italics, underscore)
     const withFormat = formatFromIRCToDiscord(text);
 
@@ -833,6 +949,11 @@ class Bot {
         await discordChannel.send(prelude);
       }
       await discordChannel.send(text);
+      
+      // Record metrics for command
+      this.metrics.recordIRCToDiscord(author, channel);
+      this.metrics.recordCommand();
+      
       return;
     }
 
@@ -903,7 +1024,14 @@ class Bot {
           avatarURL,
           disableMentions: canPingEveryone ? 'none' : 'everyone',
         })
-        .catch(logger.error);
+        .catch((error) => {
+          logger.error(error);
+          this.metrics.recordWebhookError();
+        });
+      
+      // Record metrics for webhook message
+      this.metrics.recordIRCToDiscord(author, channel);
+      
       return;
     }
 
@@ -924,6 +1052,9 @@ class Bot {
       `#${discordChannel.name}`,
     );
     await discordChannel.send(withAuthor);
+    
+    // Record metrics for regular message
+    this.metrics.recordIRCToDiscord(author, channel);
   }
 
   /* Sends a message to Discord exactly as it appears */
@@ -1036,6 +1167,9 @@ class Bot {
       await this.persistence.savePMThread(ircNick, newThread.id, pmChannel.id);
       logger.debug(`Created new PM thread for ${ircNick}: ${newThread.id}`);
       
+      // Record PM thread creation metrics
+      this.metrics.recordPMThreadCreated();
+      
       // Send initial message explaining the thread
       await newThread.send(
         `🔗 **Private message thread with IRC user \`${ircNick}\`**\n` +
@@ -1089,6 +1223,9 @@ class Bot {
       
       await thread.send(formattedMessage);
       logger.debug(`Sent IRC PM to Discord thread: ${from} -> ${thread.name}`);
+      
+      // Record PM message metrics
+      this.metrics.recordPMMessage();
       
     } catch (error) {
       logger.error('Error handling IRC private message:', error);
@@ -1144,6 +1281,11 @@ class Bot {
           this.ircClient.say(ircNick, line);
           logger.debug(`Sent Discord PM to IRC: ${message.author.username} -> ${ircNick}: ${line}`);
         }
+      }
+      
+      // Record PM message metrics (once per message, not per line)
+      if (lines.some(line => line.trim())) {
+        this.metrics.recordPMMessage();
       }
       
       return true;

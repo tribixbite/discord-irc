@@ -99,6 +99,9 @@ export class MessageSynchronizer {
         this.bot.ircClient.say(messageRecord.ircChannel, editNotification);
         logger.info(`Sent edit notification to ${messageRecord.ircChannel}: ${messageRecord.author} edited message`);
         
+        // Record edit metrics
+        this.bot.metrics.recordEdit();
+        
         // Update the record with new content
         messageRecord.ircMessage = formattedContent;
         messageRecord.timestamp = Date.now(); // Update timestamp for edit window
@@ -139,6 +142,9 @@ export class MessageSynchronizer {
       if (this.bot.ircClient && this.bot.ircClient.readyState === 'open') {
         this.bot.ircClient.say(messageRecord.ircChannel, deleteNotification);
         logger.info(`Sent delete notification to ${messageRecord.ircChannel}: ${messageRecord.author} deleted message`);
+        
+        // Record delete metrics
+        this.bot.metrics.recordDelete();
       } else {
         logger.warn('IRC client not ready, cannot send delete notification');
       }

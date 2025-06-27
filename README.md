@@ -282,3 +282,170 @@ IRC:     [DELETED] username deleted: Hello world
 - Non-blocking async processing to avoid impact on regular messages
 - Memory-efficient cleanup to prevent resource exhaustion
 - Full integration with slash command status reporting
+
+### Rate Limiting and Anti-Spam Protection
+
+The bot includes comprehensive rate limiting and anti-spam protection to prevent message flooding and abuse from both Discord and IRC users.
+
+**Features:**
+- 🚦 **Multi-level Rate Limiting** - Burst protection, per-minute, and per-hour limits
+- 🛡️ **Spam Detection** - Detects duplicate message spam with configurable thresholds
+- ⚠️ **Progressive Penalties** - Warning system with escalating consequences
+- 🔄 **Automatic Recovery** - Users are automatically unblocked after cooldown periods
+- 📊 **Admin Management** - Slash commands for monitoring and manual intervention
+- 💾 **Memory Efficient** - Automatic cleanup of old user activity data
+
+**Default Limits:**
+- **Burst Limit**: 5 messages in 10 seconds
+- **Per-Minute**: 20 messages per minute
+- **Per-Hour**: 300 messages per hour
+- **Duplicate Spam**: 3 identical messages in 30 seconds triggers block
+- **Cooldowns**: 30 seconds for rate limits, 5 minutes for spam detection
+
+**Configuration:**
+```json
+{
+  "rateLimiting": {
+    "maxMessagesPerMinute": 20,
+    "maxMessagesPerHour": 300,
+    "duplicateMessageThreshold": 3,
+    "duplicateTimeWindow": 30000,
+    "burstLimit": 5,
+    "burstWindow": 10000,
+    "spamCooldownMinutes": 5,
+    "rateLimitCooldownSeconds": 30
+  }
+}
+```
+
+**Admin Commands:**
+- `/irc-ratelimit status` - Show detailed rate limiting statistics
+- `/irc-ratelimit blocked` - List currently blocked users
+- `/irc-ratelimit unblock <user>` - Manually unblock a specific user
+- `/irc-ratelimit clear <user>` - Clear warnings for a specific user
+
+**How it works:**
+```
+User sends too many messages quickly:
+Discord/IRC: ⚠️ Rate Limit Warning: burst limit exceeded (5/5 in 10s). Please wait 30 seconds...
+
+After 3 warnings, user is temporarily blocked:
+Discord/IRC: 🚫 User blocked for 5 minutes due to repeated rate limit violations
+
+Spam detection (duplicate messages):
+Discord/IRC: 🛡️ Spam detected: duplicate message spam detected (3 identical messages). User blocked for 5 minutes.
+```
+
+**User Experience:**
+- Rate limit warnings are sent via Discord DM or IRC private message
+- Clear feedback about why messages were blocked and when they can try again
+- Progressive system gives users multiple chances before blocking
+- Automatic unblocking ensures temporary issues don't cause permanent problems
+
+### Comprehensive Monitoring and Metrics
+
+The bot includes a sophisticated metrics collection and monitoring system that tracks all aspects of bridge operation for performance analysis, troubleshooting, and capacity planning.
+
+**Features:**
+- 📊 **Real-time Metrics** - Live tracking of message flow, user activity, and system performance
+- 📈 **Historical Analytics** - Persistent storage of key metrics with automatic cleanup
+- 🔍 **Detailed Breakdowns** - Separate tracking for Discord/IRC, commands, attachments, edits, deletions
+- ⚡ **Performance Monitoring** - Message latency, error rates, connection stability
+- 🎯 **Rate Limiting Insights** - Blocked messages, warnings, spam detection statistics
+- 💬 **Private Message Analytics** - PM thread creation, message exchange tracking
+- 📡 **HTTP API** - RESTful endpoints for external monitoring systems
+- 🎛️ **Admin Controls** - Discord slash commands for metrics management
+
+**Tracked Metrics:**
+- **Message Flow**: Discord↔IRC message counts, direction-specific statistics
+- **User Activity**: Unique users, peak concurrent usage, top active users/channels
+- **System Performance**: Message latency, error rates, uptime tracking
+- **Rate Limiting**: Blocked messages, user warnings, spam detection events
+- **Private Messages**: Thread creation, message exchange, archive events
+- **Technical Health**: Connection errors, webhook failures, reconnection events
+- **Command Usage**: Regular commands vs slash commands, processing statistics
+
+**HTTP Monitoring API:**
+```bash
+# Basic health check
+GET http://localhost:3001/health
+
+# Comprehensive metrics summary
+GET http://localhost:3001/metrics
+
+# Prometheus format (for Grafana/monitoring tools)
+GET http://localhost:3001/metrics/prometheus
+
+# Detailed breakdown of all metrics
+GET http://localhost:3001/metrics/detailed
+
+# Recent activity (last hour)
+GET http://localhost:3001/metrics/recent
+```
+
+**Configuration:**
+```json
+{
+  "metricsPort": 3001
+}
+```
+
+**Discord Slash Commands:**
+- `/irc-metrics summary` - Overview with key statistics and top users/channels
+- `/irc-metrics detailed` - Complete breakdown of all tracked metrics
+- `/irc-metrics recent` - Activity from the last hour
+- `/irc-metrics export` - Download Prometheus format metrics file
+- `/irc-metrics reset` - Reset all metrics (admin only)
+
+**Integration Examples:**
+
+*Prometheus + Grafana:*
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: 'discord-irc-bridge'
+    static_configs:
+      - targets: ['localhost:3001']
+    metrics_path: '/metrics/prometheus'
+    scrape_interval: 30s
+```
+
+*Simple Monitoring Script:*
+```bash
+#!/bin/bash
+# Check bridge health and alert if needed
+HEALTH=$(curl -s http://localhost:3001/health | jq -r '.status')
+if [ "$HEALTH" != "ok" ]; then
+  echo "Bridge health check failed!" | mail -s "IRC Bridge Alert" admin@example.com
+fi
+```
+
+**Sample Metrics Output:**
+```json
+{
+  "summary": {
+    "totalMessages": 15847,
+    "messagesPerHour": 234.2,
+    "uniqueUsers": 156,
+    "errorRate": 0.02,
+    "averageLatency": 45,
+    "uptime": 2419200000,
+    "topChannels": [
+      {"channel": "#general", "messages": 8934},
+      {"channel": "#dev", "messages": 4532}
+    ],
+    "topUsers": [
+      {"user": "alice (Discord)", "messages": 1205},
+      {"user": "bob (IRC)", "messages": 987}
+    ]
+  }
+}
+```
+
+**Benefits:**
+- **Performance Optimization**: Identify bottlenecks and optimize message flow
+- **Capacity Planning**: Track growth trends and plan infrastructure scaling  
+- **Issue Detection**: Proactive monitoring alerts for errors and anomalies
+- **User Insights**: Understand usage patterns and popular channels/users
+- **Rate Limit Tuning**: Analyze blocked messages to optimize rate limiting
+- **Historical Analysis**: Long-term trends for community growth and engagement
