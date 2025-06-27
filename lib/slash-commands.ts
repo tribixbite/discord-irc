@@ -8,6 +8,7 @@ import {
 } from 'discord.js';
 import { logger } from './logger';
 import Bot from './bot';
+import { IRCChannelUser } from './irc-user-manager';
 
 export interface SlashCommand {
   data: ApplicationCommandData;
@@ -138,7 +139,7 @@ export const usersCommand: SlashCommand = {
         .setTimestamp();
 
       if (channelName) {
-        // Show users for specific channel
+        // Show users for specific channel with enhanced info
         const fullChannelName = channelName.startsWith('#') ? channelName : `#${channelName}`;
         const lowerChannelName = fullChannelName.toLowerCase();
         const users = bot.channelUsers[lowerChannelName];
@@ -149,6 +150,31 @@ export const usersCommand: SlashCommand = {
             `${fullChannelName} (${users.size} users)`, 
             userList.length > 1024 ? userList.substring(0, 1021) + '...' : userList
           );
+          
+          // Show enhanced channel info from IRC User Manager
+          const channelInfo = bot.ircUserManager.getChannelInfo(fullChannelName);
+          if (channelInfo) {
+            const stats = bot.ircUserManager.getStats();
+            const operatorCount = Array.from(channelInfo.users.values()).filter(u => u.isOperator).length;
+            const voicedCount = Array.from(channelInfo.users.values()).filter(u => u.isVoiced && !u.isOperator).length;
+            
+            if (operatorCount > 0 || voicedCount > 0) {
+              let statusInfo = '';
+              if (operatorCount > 0) statusInfo += `👑 ${operatorCount} operators`;
+              if (voicedCount > 0) {
+                if (statusInfo) statusInfo += ', ';
+                statusInfo += `🗣️ ${voicedCount} voiced`;
+              }
+              embed.addField('Channel Status', statusInfo, true);
+            }
+            
+            if (channelInfo.topic) {
+              const shortTopic = channelInfo.topic.length > 200 
+                ? `${channelInfo.topic.substring(0, 200)}...`
+                : channelInfo.topic;
+              embed.addField('Topic', shortTopic, false);
+            }
+          }
         } else {
           embed.addField(
             fullChannelName, 
@@ -156,18 +182,34 @@ export const usersCommand: SlashCommand = {
           );
         }
       } else {
-        // Show all channels and user counts
+        // Show all channels and user counts with enhanced stats
         const channels = Object.keys(bot.channelUsers).sort();
         if (channels.length === 0) {
           embed.setDescription('No IRC channels are currently being tracked.');
         } else {
+          const stats = bot.ircUserManager.getStats();
+          
           const channelInfo = channels.map(channel => {
             const userCount = bot.channelUsers[channel].size;
-            return `**${channel}**: ${userCount} users`;
+            const channelData = bot.ircUserManager.getChannelInfo(channel);
+            let info = `**${channel}**: ${userCount} users`;
+            
+            if (channelData) {
+              const opCount = Array.from(channelData.users.values()).filter(u => u.isOperator).length;
+              const voiceCount = Array.from(channelData.users.values()).filter(u => u.isVoiced && !u.isOperator).length;
+              if (opCount > 0 || voiceCount > 0) {
+                info += ` (👑${opCount}`;
+                if (voiceCount > 0) info += ` 🗣️${voiceCount}`;
+                info += ')';
+              }
+            }
+            
+            return info;
           }).join('\n');
           
-          embed.setDescription(channelInfo.length > 4096 ? 
-            channelInfo.substring(0, 4093) + '...' : channelInfo);
+          const description = `**${stats.totalUsers}** total users tracked across **${stats.totalChannels}** channels\n💡 *Use /irc-userinfo and /irc-channelinfo for detailed information*\n\n${channelInfo}`;
+          embed.setDescription(description.length > 4096 ? 
+            description.substring(0, 4093) + '...' : description);
         }
       }
 
@@ -1363,6 +1405,975 @@ export const statusNotificationCommand: SlashCommand = {
   }
 };
 
+// IRC user information command
+export const ircUserInfoCommand: SlashCommand = {
+  data: {
+    name: 'irc-userinfo',
+    description: 'Get detailed information about IRC users',
+    defaultMemberPermissions: Permissions.FLAGS.ADMINISTRATOR,
+    options: [
+      {
+        type: 'SUB_COMMAND',
+        name: 'lookup',
+        description: 'Look up detailed information about a specific IRC user',
+        options: [
+          {
+            type: 'STRING',
+            name: 'nick',
+            description: 'IRC nickname to look up',
+            required: true
+          }
+        ]
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'search',
+        description: 'Search for IRC users by various criteria',
+        options: [
+          {
+            type: 'STRING',
+            name: 'nick',
+            description: 'Search by nickname (partial match)',
+            required: false
+          },
+          {
+            type: 'STRING',
+            name: 'hostname',
+            description: 'Search by hostname (partial match)',
+            required: false
+          },
+          {
+            type: 'STRING',
+            name: 'realname',
+            description: 'Search by real name (partial match)',
+            required: false
+          },
+          {
+            type: 'STRING',
+            name: 'channel',
+            description: 'Search users in specific channel',
+            required: false
+          },
+          {
+            type: 'BOOLEAN',
+            name: 'operators_only',
+            description: 'Show only IRC operators',
+            required: false
+          },
+          {
+            type: 'BOOLEAN',
+            name: 'secure_only',
+            description: 'Show only users with secure connections',
+            required: false
+          }
+        ]
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'stats',
+        description: 'Show IRC user tracking statistics'
+      }
+    ]
+  },
+  async execute(interaction: CommandInteraction, bot: Bot) {
+    // Admin permission check
+    if (!interaction.memberPermissions?.has(Permissions.FLAGS.ADMINISTRATOR)) {
+      await interaction.reply({ 
+        content: '❌ You need Administrator permissions to use this command.', 
+        ephemeral: true 
+      });
+      return;
+    }
+
+    try {
+      const subcommand = interaction.options.getSubcommand();
+      
+      switch (subcommand) {
+        case 'lookup': {
+          const nick = interaction.options.getString('nick', true);
+          const userInfo = bot.ircUserManager.getUserInfo(nick);
+          
+          if (!userInfo) {
+            await interaction.reply({ 
+              content: `❌ **User Not Found**\n\nNo information available for IRC user "${nick}". The user may not be online or in any tracked channels.`,
+              ephemeral: true 
+            });
+            return;
+          }
+
+          const embed = new MessageEmbed()
+            .setTitle(`👤 IRC User Information: ${userInfo.nick}`)
+            .setColor('#3498db')
+            .setTimestamp();
+
+          // Basic info
+          embed.addField('Nickname', userInfo.nick, true);
+          if (userInfo.realname) embed.addField('Real Name', userInfo.realname, true);
+          if (userInfo.username) embed.addField('Username', userInfo.username, true);
+          
+          // Connection info
+          if (userInfo.hostname) {
+            embed.addField('Hostname/IP', userInfo.hostname, true);
+          }
+          if (userInfo.server) embed.addField('IRC Server', userInfo.server, true);
+          
+          // Account and security
+          if (userInfo.account) embed.addField('Services Account', userInfo.account, true);
+          embed.addField('Secure Connection', userInfo.isSecure ? '🔒 Yes (SSL/TLS)' : '❌ No', true);
+          
+          // Status
+          embed.addField('IRC Operator', userInfo.isOperator ? '⭐ Yes' : 'No', true);
+          embed.addField('Voice Status', userInfo.isVoiced ? '🗣️ Voiced' : 'Normal', true);
+          
+          // Timing info
+          if (userInfo.signonTime) {
+            embed.addField('Sign-on Time', `<t:${Math.floor(userInfo.signonTime / 1000)}:f>`, true);
+          }
+          if (userInfo.idleTime !== undefined) {
+            const idleMinutes = Math.floor(userInfo.idleTime / 60);
+            const idleHours = Math.floor(idleMinutes / 60);
+            const idleDisplay = idleHours > 0 
+              ? `${idleHours}h ${idleMinutes % 60}m`
+              : `${idleMinutes}m`;
+            embed.addField('Idle Time', idleDisplay, true);
+          }
+          
+          // Channels
+          if (userInfo.channels.length > 0) {
+            const channelList = userInfo.channels.slice(0, 10).join(', ');
+            const channelText = userInfo.channels.length > 10 
+              ? `${channelList} (+${userInfo.channels.length - 10} more)`
+              : channelList;
+            embed.addField(`Channels (${userInfo.channels.length})`, channelText, false);
+          }
+
+          // Last seen
+          const lastSeenTime = Math.floor(userInfo.lastSeen / 1000);
+          embed.addField('Last Seen', `<t:${lastSeenTime}:R>`, true);
+
+          if (userInfo.awayMessage) {
+            embed.addField('Away Message', userInfo.awayMessage, false);
+          }
+
+          await interaction.reply({ embeds: [embed], ephemeral: true });
+          break;
+        }
+
+        case 'search': {
+          const searchCriteria: any = {};
+          
+          const nick = interaction.options.getString('nick');
+          const hostname = interaction.options.getString('hostname');
+          const realname = interaction.options.getString('realname');
+          const channel = interaction.options.getString('channel');
+          const operatorsOnly = interaction.options.getBoolean('operators_only');
+          const secureOnly = interaction.options.getBoolean('secure_only');
+
+          if (nick) searchCriteria.nick = nick;
+          if (hostname) searchCriteria.hostname = hostname;
+          if (realname) searchCriteria.realname = realname;
+          if (channel) searchCriteria.channel = channel;
+          if (operatorsOnly) searchCriteria.isOperator = true;
+          if (secureOnly) searchCriteria.isSecure = true;
+
+          if (Object.keys(searchCriteria).length === 0) {
+            await interaction.reply({ 
+              content: '❌ **No Search Criteria**\n\nPlease provide at least one search criterion.',
+              ephemeral: true 
+            });
+            return;
+          }
+
+          const results = bot.ircUserManager.searchUsers(searchCriteria);
+
+          if (results.length === 0) {
+            await interaction.reply({ 
+              content: '🔍 **No Results Found**\n\nNo IRC users match your search criteria.',
+              ephemeral: true 
+            });
+            return;
+          }
+
+          const embed = new MessageEmbed()
+            .setTitle(`🔍 IRC User Search Results`)
+            .setColor('#e74c3c')
+            .setTimestamp();
+
+          // Show search criteria
+          const criteriaText = Object.entries(searchCriteria)
+            .map(([key, value]) => `${key}: ${value}`)
+            .join(', ');
+          embed.setDescription(`**Search criteria:** ${criteriaText}\n**Found ${results.length} user(s)**`);
+
+          // Show up to 20 results
+          const displayResults = results.slice(0, 20);
+          
+          for (let i = 0; i < displayResults.length; i += 2) {
+            const user1 = displayResults[i];
+            const user2 = displayResults[i + 1];
+            
+            const formatUser = (user: any) => {
+              let info = `**${user.nick}**`;
+              if (user.realname) info += `\n*${user.realname}*`;
+              if (user.hostname) info += `\n\`${user.hostname}\``;
+              if (user.isOperator) info += '\n⭐ IRC Op';
+              if (user.isSecure) info += '\n🔒 Secure';
+              info += `\nChannels: ${user.channels.length}`;
+              return info;
+            };
+
+            if (user2) {
+              embed.addField(`User ${i + 1}`, formatUser(user1), true);
+              embed.addField(`User ${i + 2}`, formatUser(user2), true);
+              embed.addField('\u200B', '\u200B', true); // Spacer
+            } else {
+              embed.addField(`User ${i + 1}`, formatUser(user1), true);
+            }
+          }
+
+          if (results.length > 20) {
+            embed.setFooter({ text: `Showing first 20 of ${results.length} results` });
+          }
+
+          await interaction.reply({ embeds: [embed], ephemeral: true });
+          break;
+        }
+
+        case 'stats': {
+          const stats = bot.ircUserManager.getStats();
+          const serverInfo = bot.ircUserManager.getServerInfo();
+          
+          const embed = new MessageEmbed()
+            .setTitle('📊 IRC User Tracking Statistics')
+            .setColor('#9b59b6')
+            .setTimestamp();
+
+          embed.addField('Total Tracked Users', `${stats.totalUsers}`, true);
+          embed.addField('Total Channels', `${stats.totalChannels}`, true);
+          embed.addField('Users with Full Info', `${stats.usersWithFullInfo}`, true);
+          embed.addField('IRC Operators', `${stats.operatorCount}`, true);
+          embed.addField('Secure Connections', `${stats.secureUsers}`, true);
+          embed.addField('Data Completeness', `${Math.round((stats.usersWithFullInfo / Math.max(stats.totalUsers, 1)) * 100)}%`, true);
+
+          if (serverInfo.name) {
+            embed.addField('IRC Server', serverInfo.name, true);
+          }
+          if (serverInfo.network) {
+            embed.addField('Network', serverInfo.network, true);
+          }
+
+          // Server capabilities
+          if (serverInfo.supportedFeatures.size > 0) {
+            const features = Array.from(serverInfo.supportedFeatures.entries())
+              .slice(0, 5)
+              .map(([key, value]) => typeof value === 'string' ? `${key}=${value}` : key)
+              .join(', ');
+            embed.addField('Server Features', features, false);
+          }
+
+          await interaction.reply({ embeds: [embed], ephemeral: true });
+          break;
+        }
+      }
+      
+    } catch (error) {
+      logger.error('Error in IRC user info command:', error);
+      await interaction.reply({ 
+        content: '❌ Failed to execute IRC user info command.', 
+        ephemeral: true 
+      });
+    }
+  }
+};
+
+// IRC channel information command
+export const ircChannelInfoCommand: SlashCommand = {
+  data: {
+    name: 'irc-channelinfo',
+    description: 'Get detailed information about IRC channels',
+    defaultMemberPermissions: Permissions.FLAGS.ADMINISTRATOR,
+    options: [
+      {
+        type: 'SUB_COMMAND',
+        name: 'info',
+        description: 'Get detailed information about a specific IRC channel',
+        options: [
+          {
+            type: 'STRING',
+            name: 'channel',
+            description: 'IRC channel name (e.g., #general)',
+            required: true
+          }
+        ]
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'users',
+        description: 'List all users in an IRC channel with their modes',
+        options: [
+          {
+            type: 'STRING',
+            name: 'channel',
+            description: 'IRC channel name (e.g., #general)',
+            required: true
+          },
+          {
+            type: 'BOOLEAN',
+            name: 'show_operators_only',
+            description: 'Show only operators and voiced users',
+            required: false
+          }
+        ]
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'list',
+        description: 'List all tracked IRC channels'
+      }
+    ]
+  },
+  async execute(interaction: CommandInteraction, bot: Bot) {
+    // Admin permission check
+    if (!interaction.memberPermissions?.has(Permissions.FLAGS.ADMINISTRATOR)) {
+      await interaction.reply({ 
+        content: '❌ You need Administrator permissions to use this command.', 
+        ephemeral: true 
+      });
+      return;
+    }
+
+    try {
+      const subcommand = interaction.options.getSubcommand();
+      
+      switch (subcommand) {
+        case 'info': {
+          const channelName = interaction.options.getString('channel', true);
+          const channelInfo = bot.ircUserManager.getChannelInfo(channelName);
+          
+          if (!channelInfo) {
+            await interaction.reply({ 
+              content: `❌ **Channel Not Found**\n\nNo information available for IRC channel "${channelName}". The bot may not be in this channel.`,
+              ephemeral: true 
+            });
+            return;
+          }
+
+          const embed = new MessageEmbed()
+            .setTitle(`📺 IRC Channel Information: ${channelInfo.name}`)
+            .setColor('#2ecc71')
+            .setTimestamp();
+
+          embed.addField('Channel Name', channelInfo.name, true);
+          embed.addField('User Count', `${channelInfo.userCount}`, true);
+          
+          if (channelInfo.topic) {
+            embed.addField('Topic', channelInfo.topic, false);
+            if (channelInfo.topicSetBy) {
+              const topicInfo = channelInfo.topicSetAt 
+                ? `Set by ${channelInfo.topicSetBy} <t:${Math.floor(channelInfo.topicSetAt / 1000)}:R>`
+                : `Set by ${channelInfo.topicSetBy}`;
+              embed.addField('Topic Info', topicInfo, true);
+            }
+          }
+
+          if (channelInfo.modes.length > 0) {
+            embed.addField('Channel Modes', channelInfo.modes.join(', '), true);
+          }
+
+          if (channelInfo.created) {
+            embed.addField('Created', `<t:${Math.floor(channelInfo.created / 1000)}:f>`, true);
+          }
+
+          // Show operators and voiced users
+          const operators = Array.from(channelInfo.users.values())
+            .filter(user => user.isOperator)
+            .map(user => user.nick)
+            .slice(0, 10);
+          
+          if (operators.length > 0) {
+            const opList = operators.length > 10 
+              ? `${operators.slice(0, 10).join(', ')} (+${operators.length - 10} more)`
+              : operators.join(', ');
+            embed.addField(`Operators (${operators.length})`, opList, false);
+          }
+
+          const voiced = Array.from(channelInfo.users.values())
+            .filter(user => user.isVoiced && !user.isOperator)
+            .map(user => user.nick)
+            .slice(0, 10);
+          
+          if (voiced.length > 0) {
+            const voiceList = voiced.length > 10 
+              ? `${voiced.slice(0, 10).join(', ')} (+${voiced.length - 10} more)`
+              : voiced.join(', ');
+            embed.addField(`Voiced Users (${voiced.length})`, voiceList, false);
+          }
+
+          await interaction.reply({ embeds: [embed], ephemeral: true });
+          break;
+        }
+
+        case 'users': {
+          const channelName = interaction.options.getString('channel', true);
+          const showOperatorsOnly = interaction.options.getBoolean('show_operators_only') || false;
+          
+          const channelUsers = bot.ircUserManager.getChannelUsers(channelName);
+          
+          if (channelUsers.length === 0) {
+            await interaction.reply({ 
+              content: `❌ **Channel Not Found**\n\nNo users found for IRC channel "${channelName}". The bot may not be in this channel.`,
+              ephemeral: true 
+            });
+            return;
+          }
+
+          let filteredUsers = channelUsers;
+          if (showOperatorsOnly) {
+            filteredUsers = channelUsers.filter(user => user.isOperator || user.isVoiced);
+          }
+
+          const embed = new MessageEmbed()
+            .setTitle(`👥 Users in ${channelName}`)
+            .setColor('#f39c12')
+            .setTimestamp();
+
+          embed.setDescription(`**${filteredUsers.length}** ${showOperatorsOnly ? 'privileged ' : ''}users found`);
+
+          // Sort users by privilege level
+          const sortedUsers = filteredUsers.sort((a, b) => {
+            if (a.isOperator && !b.isOperator) return -1;
+            if (!a.isOperator && b.isOperator) return 1;
+            if (a.isVoiced && !b.isVoiced) return -1;
+            if (!a.isVoiced && b.isVoiced) return 1;
+            return a.nick.localeCompare(b.nick);
+          });
+
+          // Display users in chunks
+          const userChunks: IRCChannelUser[][] = [];
+          for (let i = 0; i < sortedUsers.length; i += 30) {
+            userChunks.push(sortedUsers.slice(i, i + 30));
+          }
+
+          for (let chunkIndex = 0; chunkIndex < Math.min(userChunks.length, 3); chunkIndex++) {
+            const chunk = userChunks[chunkIndex];
+            const userList = chunk.map(user => {
+              let prefix = '';
+              if (user.isOperator) prefix = '@';
+              else if (user.isHalfOperator) prefix = '%';
+              else if (user.isVoiced) prefix = '+';
+              
+              return `${prefix}${user.nick}`;
+            }).join(', ');
+
+            const fieldName = chunkIndex === 0 ? 'Users' : `Users (continued ${chunkIndex + 1})`;
+            embed.addField(fieldName, userList, false);
+          }
+
+          if (userChunks.length > 3) {
+            embed.setFooter({ text: `Showing first 90 users. Total: ${sortedUsers.length}` });
+          }
+
+          await interaction.reply({ embeds: [embed], ephemeral: true });
+          break;
+        }
+
+        case 'list': {
+          const channels = bot.ircUserManager.getAllChannels();
+          
+          if (channels.length === 0) {
+            await interaction.reply({ 
+              content: '📺 **No Channels Tracked**\n\nThe bot is not currently tracking any IRC channels.',
+              ephemeral: true 
+            });
+            return;
+          }
+
+          const embed = new MessageEmbed()
+            .setTitle('📺 Tracked IRC Channels')
+            .setColor('#e67e22')
+            .setTimestamp();
+
+          embed.setDescription(`**${channels.length}** channels being tracked`);
+
+          // Sort channels by user count
+          const sortedChannels = channels.sort((a, b) => b.userCount - a.userCount);
+
+          // Display channels in chunks
+          for (let i = 0; i < Math.min(sortedChannels.length, 25); i += 5) {
+            const chunk = sortedChannels.slice(i, i + 5);
+            const channelList = chunk.map(channel => {
+              let info = `**${channel.name}** (${channel.userCount} users)`;
+              if (channel.topic) {
+                const shortTopic = channel.topic.length > 50 
+                  ? `${channel.topic.substring(0, 50)}...`
+                  : channel.topic;
+                info += `\n*${shortTopic}*`;
+              }
+              return info;
+            }).join('\n\n');
+
+            const fieldName = i === 0 ? 'Channels' : `Channels (${i + 1}-${Math.min(i + 5, sortedChannels.length)})`;
+            embed.addField(fieldName, channelList, false);
+          }
+
+          if (sortedChannels.length > 25) {
+            embed.setFooter({ text: `Showing first 25 channels. Total: ${sortedChannels.length}` });
+          }
+
+          await interaction.reply({ embeds: [embed], ephemeral: true });
+          break;
+        }
+      }
+      
+    } catch (error) {
+      logger.error('Error in IRC channel info command:', error);
+      await interaction.reply({ 
+        content: '❌ Failed to execute IRC channel info command.', 
+        ephemeral: true 
+      });
+    }
+  }
+};
+
+// IRC WHO command
+export const ircWhoCommand: SlashCommand = {
+  data: {
+    name: 'irc-who',
+    description: 'Execute WHO command to find IRC users matching patterns',
+    defaultMemberPermissions: Permissions.FLAGS.ADMINISTRATOR,
+    options: [
+      {
+        type: 'STRING',
+        name: 'pattern',
+        description: 'Pattern to search for (e.g., *.example.com, #channel, nick*)',
+        required: true
+      }
+    ]
+  },
+  async execute(interaction: CommandInteraction, bot: Bot) {
+    // Admin permission check
+    if (!interaction.memberPermissions?.has(Permissions.FLAGS.ADMINISTRATOR)) {
+      await interaction.reply({ 
+        content: '❌ You need Administrator permissions to use this command.', 
+        ephemeral: true 
+      });
+      return;
+    }
+
+    try {
+      const pattern = interaction.options.getString('pattern', true);
+      
+      await interaction.deferReply({ ephemeral: true });
+      
+      try {
+        const users = await bot.ircUserManager.whoQuery(pattern);
+        
+        if (users.length === 0) {
+          await interaction.editReply({ 
+            content: `🔍 **WHO Query Results**\n\nNo users found matching pattern: \`${pattern}\`` 
+          });
+          return;
+        }
+
+        const embed = new MessageEmbed()
+          .setTitle(`🔍 WHO Query Results: ${pattern}`)
+          .setColor('#e74c3c')
+          .setTimestamp();
+
+        embed.setDescription(`**${users.length}** user(s) found matching pattern \`${pattern}\``);
+
+        // Show up to 20 users
+        const displayUsers = users.slice(0, 20);
+        
+        for (let i = 0; i < displayUsers.length; i += 2) {
+          const user1 = displayUsers[i];
+          const user2 = displayUsers[i + 1];
+          
+          const formatUser = (user: any) => {
+            let info = `**${user.nick}**`;
+            if (user.realname) info += `\n*${user.realname}*`;
+            if (user.hostname) info += `\n\`${user.hostname}\``;
+            if (user.server) info += `\nServer: ${user.server}`;
+            if (user.isOperator) info += '\n⭐ IRC Op';
+            if (user.isAway) info += '\n😴 Away';
+            if (user.isSecure) info += '\n🔒 Secure';
+            return info;
+          };
+
+          if (user2) {
+            embed.addField(`User ${i + 1}`, formatUser(user1), true);
+            embed.addField(`User ${i + 2}`, formatUser(user2), true);
+            embed.addField('\u200B', '\u200B', true); // Spacer
+          } else {
+            embed.addField(`User ${i + 1}`, formatUser(user1), true);
+          }
+        }
+
+        if (users.length > 20) {
+          embed.setFooter({ text: `Showing first 20 of ${users.length} results` });
+        }
+
+        await interaction.editReply({ embeds: [embed] });
+        
+      } catch (error) {
+        await interaction.editReply({ 
+          content: `❌ **WHO Query Failed**\n\nError executing WHO query for pattern \`${pattern}\`: ${(error as Error).message}` 
+        });
+      }
+      
+    } catch (error) {
+      logger.error('Error in IRC WHO command:', error);
+      if (interaction.deferred) {
+        await interaction.editReply({ 
+          content: '❌ Failed to execute WHO command.' 
+        });
+      } else {
+        await interaction.reply({ 
+          content: '❌ Failed to execute WHO command.', 
+          ephemeral: true 
+        });
+      }
+    }
+  }
+};
+
+// Raw IRC command execution
+export const ircCommandCommand: SlashCommand = {
+  data: {
+    name: 'irc-command',
+    description: 'Execute raw IRC commands (DANGEROUS - admin only)',
+    defaultMemberPermissions: Permissions.FLAGS.ADMINISTRATOR,
+    options: [
+      {
+        type: 'SUB_COMMAND',
+        name: 'send',
+        description: 'Send a raw IRC command',
+        options: [
+          {
+            type: 'STRING',
+            name: 'command',
+            description: 'IRC command to send (e.g., PRIVMSG, MODE, KICK)',
+            required: true
+          },
+          {
+            type: 'STRING',
+            name: 'arguments',
+            description: 'Command arguments (space-separated)',
+            required: false
+          }
+        ]
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'raw',
+        description: 'Send a raw IRC protocol message',
+        options: [
+          {
+            type: 'STRING',
+            name: 'message',
+            description: 'Raw IRC message (advanced users only)',
+            required: true
+          }
+        ]
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'moderation',
+        description: 'Common moderation commands',
+        options: [
+          {
+            type: 'STRING',
+            name: 'action',
+            description: 'Moderation action',
+            required: true,
+            choices: [
+              { name: 'Kick user', value: 'kick' },
+              { name: 'Ban user', value: 'ban' },
+              { name: 'Set topic', value: 'topic' },
+              { name: 'Set mode', value: 'mode' },
+              { name: 'Invite user', value: 'invite' }
+            ]
+          },
+          {
+            type: 'STRING',
+            name: 'target',
+            description: 'Channel or user target',
+            required: true
+          },
+          {
+            type: 'STRING',
+            name: 'parameter',
+            description: 'User, topic, mode, or reason',
+            required: false
+          },
+          {
+            type: 'STRING',
+            name: 'reason',
+            description: 'Reason for kick/ban',
+            required: false
+          }
+        ]
+      }
+    ]
+  },
+  async execute(interaction: CommandInteraction, bot: Bot) {
+    // Admin permission check
+    if (!interaction.memberPermissions?.has(Permissions.FLAGS.ADMINISTRATOR)) {
+      await interaction.reply({ 
+        content: '❌ You need Administrator permissions to use this command.', 
+        ephemeral: true 
+      });
+      return;
+    }
+
+    try {
+      const subcommand = interaction.options.getSubcommand();
+      
+      switch (subcommand) {
+        case 'send': {
+          const command = interaction.options.getString('command', true).toUpperCase();
+          const args = interaction.options.getString('arguments');
+          
+          // Basic safety checks
+          const dangerousCommands = ['QUIT', 'SQUIT', 'CONNECT', 'OPER'];
+          if (dangerousCommands.includes(command)) {
+            await interaction.reply({ 
+              content: `❌ **Command Blocked**\n\nThe command \`${command}\` is not allowed for safety reasons.`,
+              ephemeral: true 
+            });
+            return;
+          }
+
+          try {
+            if (args) {
+              const argArray = args.split(' ');
+              bot.executeIRCCommand(command, ...argArray);
+            } else {
+              bot.executeIRCCommand(command);
+            }
+            
+            await interaction.reply({ 
+              content: `✅ **IRC Command Sent**\n\nExecuted: \`${command}${args ? ' ' + args : ''}\``,
+              ephemeral: true 
+            });
+          } catch (error) {
+            await interaction.reply({ 
+              content: `❌ **Command Failed**\n\nError executing \`${command}\`: ${(error as Error).message}`,
+              ephemeral: true 
+            });
+          }
+          break;
+        }
+
+        case 'raw': {
+          const rawMessage = interaction.options.getString('message', true);
+          
+          // Safety check for dangerous raw commands
+          if (rawMessage.toUpperCase().includes('QUIT') || rawMessage.toUpperCase().includes('SQUIT')) {
+            await interaction.reply({ 
+              content: '❌ **Raw Message Blocked**\n\nQUIT and SQUIT commands are not allowed.',
+              ephemeral: true 
+            });
+            return;
+          }
+
+          try {
+            bot.sendRawIRC(rawMessage);
+            
+            await interaction.reply({ 
+              content: `✅ **Raw IRC Message Sent**\n\nSent: \`${rawMessage}\``,
+              ephemeral: true 
+            });
+          } catch (error) {
+            await interaction.reply({ 
+              content: `❌ **Raw Message Failed**\n\nError sending raw message: ${(error as Error).message}`,
+              ephemeral: true 
+            });
+          }
+          break;
+        }
+
+        case 'moderation': {
+          const action = interaction.options.getString('action', true);
+          const target = interaction.options.getString('target', true);
+          const parameter = interaction.options.getString('parameter');
+          const reason = interaction.options.getString('reason');
+          
+          try {
+            let commandStr = '';
+            
+            switch (action) {
+              case 'kick':
+                if (!parameter) {
+                  await interaction.reply({ 
+                    content: '❌ **Missing Parameter**\n\nKick command requires a user parameter.',
+                    ephemeral: true 
+                  });
+                  return;
+                }
+                commandStr = `KICK ${target} ${parameter}${reason ? ' :' + reason : ''}`;
+                bot.sendRawIRC(commandStr);
+                break;
+                
+              case 'ban':
+                if (!parameter) {
+                  await interaction.reply({ 
+                    content: '❌ **Missing Parameter**\n\nBan command requires a user/hostmask parameter.',
+                    ephemeral: true 
+                  });
+                  return;
+                }
+                commandStr = `MODE ${target} +b ${parameter}`;
+                bot.executeIRCCommand('MODE', target, '+b', parameter);
+                break;
+                
+              case 'topic':
+                if (!parameter) {
+                  await interaction.reply({ 
+                    content: '❌ **Missing Parameter**\n\nTopic command requires a topic parameter.',
+                    ephemeral: true 
+                  });
+                  return;
+                }
+                commandStr = `TOPIC ${target} :${parameter}`;
+                bot.executeIRCCommand('TOPIC', target, parameter);
+                break;
+                
+              case 'mode':
+                if (!parameter) {
+                  await interaction.reply({ 
+                    content: '❌ **Missing Parameter**\n\nMode command requires a mode parameter.',
+                    ephemeral: true 
+                  });
+                  return;
+                }
+                commandStr = `MODE ${target} ${parameter}`;
+                bot.executeIRCCommand('MODE', target, parameter);
+                break;
+                
+              case 'invite':
+                if (!parameter) {
+                  await interaction.reply({ 
+                    content: '❌ **Missing Parameter**\n\nInvite command requires a user parameter.',
+                    ephemeral: true 
+                  });
+                  return;
+                }
+                commandStr = `INVITE ${parameter} ${target}`;
+                bot.executeIRCCommand('INVITE', parameter, target);
+                break;
+            }
+            
+            await interaction.reply({ 
+              content: `✅ **Moderation Command Sent**\n\nExecuted: \`${commandStr}\``,
+              ephemeral: true 
+            });
+            
+          } catch (error) {
+            await interaction.reply({ 
+              content: `❌ **Moderation Command Failed**\n\nError executing ${action}: ${(error as Error).message}`,
+              ephemeral: true 
+            });
+          }
+          break;
+        }
+      }
+      
+    } catch (error) {
+      logger.error('Error in IRC command execution:', error);
+      await interaction.reply({ 
+        content: '❌ Failed to execute IRC command.', 
+        ephemeral: true 
+      });
+    }
+  }
+};
+
+// IRC channel lists command (ban, quiet, exception, invite lists)
+export const ircListsCommand: SlashCommand = {
+  data: {
+    name: 'irc-lists',
+    description: 'View IRC channel ban/quiet/exception/invite lists',
+    defaultMemberPermissions: Permissions.FLAGS.ADMINISTRATOR,
+    options: [
+      {
+        type: 'STRING',
+        name: 'channel',
+        description: 'IRC channel name (e.g., #general)',
+        required: true
+      },
+      {
+        type: 'STRING',
+        name: 'list_type',
+        description: 'Type of list to view',
+        required: true,
+        choices: [
+          { name: 'Ban list (+b)', value: 'b' },
+          { name: 'Quiet list (+q)', value: 'q' },
+          { name: 'Exception list (+e)', value: 'e' },
+          { name: 'Invite list (+I)', value: 'I' }
+        ]
+      }
+    ]
+  },
+  async execute(interaction: CommandInteraction, bot: Bot) {
+    // Admin permission check
+    if (!interaction.memberPermissions?.has(Permissions.FLAGS.ADMINISTRATOR)) {
+      await interaction.reply({ 
+        content: '❌ You need Administrator permissions to use this command.', 
+        ephemeral: true 
+      });
+      return;
+    }
+
+    try {
+      const channel = interaction.options.getString('channel', true);
+      const listType = interaction.options.getString('list_type', true);
+      
+      // Ensure channel starts with #
+      const channelName = channel.startsWith('#') ? channel : `#${channel}`;
+      
+      await interaction.deferReply({ ephemeral: true });
+      
+      try {
+        // Send MODE command to query the list
+        bot.executeIRCCommand('MODE', channelName, `+${listType}`);
+        
+        // For now, just confirm the command was sent
+        // In a full implementation, you'd collect the responses
+        const listNames = {
+          'b': 'Ban List',
+          'q': 'Quiet List', 
+          'e': 'Exception List',
+          'I': 'Invite List'
+        };
+        
+        await interaction.editReply({ 
+          content: `✅ **${listNames[listType as keyof typeof listNames]} Query Sent**\n\nRequested ${listNames[listType as keyof typeof listNames].toLowerCase()} for ${channelName}.\n\n⚠️ **Note**: Results will appear in IRC client logs. Full list viewing in Discord will be implemented in a future update.`
+        });
+        
+      } catch (error) {
+        await interaction.editReply({ 
+          content: `❌ **List Query Failed**\n\nError querying ${listType} list for ${channelName}: ${(error as Error).message}` 
+        });
+      }
+      
+    } catch (error) {
+      logger.error('Error in IRC lists command:', error);
+      if (interaction.deferred) {
+        await interaction.editReply({ 
+          content: '❌ Failed to execute lists command.' 
+        });
+      } else {
+        await interaction.reply({ 
+          content: '❌ Failed to execute lists command.', 
+          ephemeral: true 
+        });
+      }
+    }
+  }
+};
+
 // Export all commands
 export const slashCommands: SlashCommand[] = [
   statusCommand,
@@ -1374,7 +2385,12 @@ export const slashCommands: SlashCommand[] = [
   recoveryCommand,
   s3Command,
   mentionCommand,
-  statusNotificationCommand
+  statusNotificationCommand,
+  ircUserInfoCommand,
+  ircChannelInfoCommand,
+  ircWhoCommand,
+  ircCommandCommand,
+  ircListsCommand
 ];
 
 // Command registration utility

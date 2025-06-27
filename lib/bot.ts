@@ -20,6 +20,7 @@ import { RecoveryManager, RecoveryConfig } from './recovery-manager';
 import { S3Uploader, S3Config } from './s3-uploader';
 import { MentionDetector, MentionConfig } from './mention-detector';
 import { StatusNotificationManager } from './status-notifications';
+import { IRCUserManager } from './irc-user-manager';
 
 // Usernames need to be between 2 and 32 characters for webhooks:
 const USERNAME_MIN_LENGTH = 2;
@@ -114,6 +115,9 @@ class Bot {
   
   // Status notification manager
   statusNotifications: StatusNotificationManager;
+  
+  // IRC user information manager
+  ircUserManager!: IRCUserManager;
 
   constructor(options: Record<string, unknown>) {
     for (const field of REQUIRED_FIELDS) {
@@ -332,6 +336,10 @@ class Bot {
     }
 
     this.ircClient = new irc.Client(this.server, this.nickname, ircOptions);
+    
+    // Initialize IRC user manager
+    this.ircUserManager = new IRCUserManager(this.ircClient);
+    
     this.attachListeners();
     
     // Start metrics HTTP server if configured
@@ -348,6 +356,8 @@ class Bot {
     }
     // Save message sync history to persistence
     await this.messageSync.saveHistoryToPersistence();
+    // Cleanup IRC user manager
+    this.ircUserManager.cleanup();
     // Stop metrics HTTP server
     if (this.metricsServer) {
       this.metricsServer.stop();
@@ -499,6 +509,9 @@ class Bot {
       
       this.ircClient = new irc.Client(this.server, this.nickname, ircOptions);
       
+      // Re-initialize IRC user manager
+      this.ircUserManager = new IRCUserManager(this.ircClient);
+      
       // Re-attach IRC listeners
       this.attachIRCListeners();
       
@@ -627,6 +640,11 @@ class Bot {
       for (const element of this.autoSendCommands) {
         this.ircClient.send(...element);
       }
+      
+      // Schedule periodic cleanup of IRC user data (every 6 hours)
+      setInterval(() => {
+        this.ircUserManager.cleanup();
+      }, 6 * 60 * 60 * 1000);
     });
 
     this.ircClient.on('error', (error) => {
@@ -1436,6 +1454,24 @@ class Bot {
       `#${discordChannel.name}`,
     );
     await discordChannel.send(text);
+  }
+
+  // IRC Command execution
+  
+  /**
+   * Execute raw IRC command
+   */
+  executeIRCCommand(command: string, ...args: string[]): void {
+    logger.info(`Executing IRC command: ${command} ${args.join(' ')}`);
+    this.ircClient.send(command, ...args);
+  }
+
+  /**
+   * Send raw IRC message
+   */
+  sendRawIRC(rawMessage: string): void {
+    logger.info(`Sending raw IRC message: ${rawMessage}`);
+    this.ircClient.conn?.write(`${rawMessage}\r\n`);
   }
 
   // Private Message functionality
