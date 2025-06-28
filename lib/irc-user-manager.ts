@@ -52,6 +52,13 @@ export interface IRCServerInfo {
   prefixes: Map<string, string>; // @ -> o, + -> v, etc.
 }
 
+export interface IRCChannelListItem {
+  name: string;
+  userCount: number;
+  topic?: string;
+  modes?: string[];
+}
+
 export class IRCUserManager {
   private users: Map<string, IRCUserInfo> = new Map();
   private channels: Map<string, IRCChannelInfo> = new Map();
@@ -60,6 +67,7 @@ export class IRCUserManager {
   private userInfoRequests: Map<string, NodeJS.Timeout> = new Map();
   private pendingWhoisRequests: Set<string> = new Set();
   private pendingWhoRequests: Map<string, { resolve: (users: IRCUserInfo[]) => void; timeout: NodeJS.Timeout; users: IRCUserInfo[] }> = new Map();
+  private pendingListRequests: Map<string, { resolve: (channels: IRCChannelListItem[]) => void; timeout: NodeJS.Timeout; channels: IRCChannelListItem[]; maxChannels: number }> = new Map();
 
   constructor(ircClient: IRCClient) {
     this.ircClient = ircClient;
@@ -183,6 +191,14 @@ export class IRCUserManager {
       
       case '315': // RPL_ENDOFWHO
         this.handleEndOfWho(params);
+        break;
+
+      case '322': // RPL_LIST
+        this.parseListReply(params);
+        break;
+      
+      case '323': // RPL_LISTEND
+        this.handleEndOfList(params);
         break;
 
       case '001': // RPL_WELCOME
@@ -351,7 +367,7 @@ export class IRCUserManager {
     // WHO reply format: nick channel username host server nick flags :realname
     if (params.length < 8) return;
     
-    const [, channel, username, hostname, server, nick, flags, ...realnameArray] = params;
+    const [, , username, hostname, server, nick, flags, ...realnameArray] = params;
     const realname = realnameArray.join(' ').replace(/^:/, '');
     
     let user = this.users.get(nick.toLowerCase());
@@ -372,7 +388,7 @@ export class IRCUserManager {
     user.isOperator = flags.includes('*');
     
     // Add to any pending WHO requests
-    for (const [requestId, request] of this.pendingWhoRequests.entries()) {
+    for (const [, request] of this.pendingWhoRequests.entries()) {
       if (!request.users.find(u => u.nick.toLowerCase() === nick.toLowerCase())) {
         request.users.push({ ...user });
       }
@@ -392,6 +408,42 @@ export class IRCUserManager {
       request.resolve(request.users);
       this.pendingWhoRequests.delete(target);
       logger.debug(`Completed WHO request for ${target}, found ${request.users.length} users`);
+    }
+  }
+
+  private parseListReply(params: string[]): void {
+    // LIST reply format: channel user_count :topic
+    if (params.length < 4) return;
+    
+    const [, channelName, userCountStr, ...topicArray] = params;
+    const topic = topicArray.join(' ').replace(/^:/, '');
+    const userCount = parseInt(userCountStr, 10) || 0;
+    
+    const listItem: IRCChannelListItem = {
+      name: channelName,
+      userCount,
+      topic: topic || undefined
+    };
+    
+    // Add to any pending LIST requests (with safety limit)
+    for (const [, request] of this.pendingListRequests.entries()) {
+      if (request.channels.length < request.maxChannels) {
+        request.channels.push(listItem);
+      } else if (request.channels.length === request.maxChannels) {
+        logger.warn(`LIST request reached maximum channel limit of ${request.maxChannels}. Further channels will be ignored.`);
+      }
+    }
+    
+    logger.debug(`Added channel to LIST: ${channelName} (${userCount} users)`);
+  }
+
+  private handleEndOfList(): void {
+    // Resolve all pending LIST requests
+    for (const [requestId, request] of this.pendingListRequests.entries()) {
+      clearTimeout(request.timeout);
+      request.resolve(request.channels);
+      this.pendingListRequests.delete(requestId);
+      logger.debug(`Completed LIST request, found ${request.channels.length} channels`);
     }
   }
 
@@ -443,7 +495,7 @@ export class IRCUserManager {
     }
   }
 
-  private handleUserQuit(nick: string, channels?: string[]): void {
+  private handleUserQuit(nick: string): void {
     const user = this.users.get(nick.toLowerCase());
     if (user) {
       user.channels = [];
@@ -718,6 +770,42 @@ export class IRCUserManager {
       // Send WHO command
       this.ircClient.send('WHO', pattern);
       logger.debug(`Sent WHO command for pattern: ${pattern}`);
+    });
+  }
+
+  /**
+   * Execute LIST command to discover channels
+   */
+  public async listChannels(pattern?: string): Promise<IRCChannelListItem[]> {
+    return new Promise((resolve, reject) => {
+      const requestId = `list_${Date.now()}_${Math.random()}`;
+      const MAX_CHANNELS_TO_STORE = 10000; // Safety limit to prevent memory exhaustion
+      
+      const timeout = setTimeout(() => {
+        this.pendingListRequests.delete(requestId);
+        reject(new Error(`LIST query timeout${pattern ? ` for pattern: ${pattern}` : ''}`));
+      }, 60000); // 60 second timeout (LIST can be slow)
+
+      this.pendingListRequests.set(requestId, {
+        resolve,
+        timeout,
+        channels: [],
+        maxChannels: MAX_CHANNELS_TO_STORE
+      });
+
+      // Add a check to prevent unbounded LIST queries
+      if (!pattern) {
+        logger.warn('Executing LIST command without a pattern. This can be memory-intensive on large networks.');
+      }
+
+      // Send LIST command
+      if (pattern) {
+        this.ircClient.send('LIST', pattern);
+        logger.debug(`Sent LIST command for pattern: ${pattern}`);
+      } else {
+        this.ircClient.send('LIST');
+        logger.debug('Sent LIST command for all channels');
+      }
     });
   }
 

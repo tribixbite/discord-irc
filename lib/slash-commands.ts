@@ -8,7 +8,7 @@ import {
 } from 'discord.js';
 import { logger } from './logger';
 import Bot from './bot';
-import { IRCChannelUser } from './irc-user-manager';
+import { IRCChannelUser, IRCChannelListItem } from './irc-user-manager';
 
 export interface SlashCommand {
   data: ApplicationCommandData;
@@ -2146,8 +2146,16 @@ export const ircCommandCommand: SlashCommand = {
 
           try {
             if (args) {
-              const argArray = args.split(' ');
-              bot.executeIRCCommand(command, ...argArray);
+              // Support arguments with spaces by treating everything after the first space as a single final argument
+              const argParts = args.trim().split(' ');
+              const firstArg = argParts.shift();
+              const restArgs = argParts.join(' ');
+              
+              const finalArgs: string[] = [];
+              if (firstArg) finalArgs.push(firstArg);
+              if (restArgs) finalArgs.push(restArgs);
+
+              bot.executeIRCCommand(command, ...finalArgs);
             } else {
               bot.executeIRCCommand(command);
             }
@@ -2212,7 +2220,7 @@ export const ircCommandCommand: SlashCommand = {
                   return;
                 }
                 commandStr = `KICK ${target} ${parameter}${reason ? ' :' + reason : ''}`;
-                bot.sendRawIRC(commandStr);
+                bot.executeIRCCommand('KICK', target, parameter, ...(reason ? [reason] : []));
                 break;
                 
               case 'ban':
@@ -2374,6 +2382,265 @@ export const ircListsCommand: SlashCommand = {
   }
 };
 
+// IRC Channel discovery and management command
+export const ircChannelDiscoveryCommand: SlashCommand = {
+  data: {
+    name: 'irc-channels',
+    description: 'Discover and manage IRC channels',
+    defaultMemberPermissions: Permissions.FLAGS.ADMINISTRATOR,
+    options: [
+      {
+        type: 'SUB_COMMAND',
+        name: 'list',
+        description: 'List available IRC channels',
+        options: [
+          {
+            type: 'STRING',
+            name: 'pattern',
+            description: 'Channel name pattern to search for (e.g., *game*, #dev*)',
+            required: false
+          },
+          {
+            type: 'INTEGER',
+            name: 'min_users',
+            description: 'Minimum number of users (default: 1)',
+            required: false,
+            choices: [
+              { name: '1+', value: 1 },
+              { name: '5+', value: 5 },
+              { name: '10+', value: 10 },
+              { name: '25+', value: 25 },
+              { name: '50+', value: 50 },
+              { name: '100+', value: 100 }
+            ]
+          },
+          {
+            type: 'INTEGER',
+            name: 'limit',
+            description: 'Maximum number of channels to show (default: 50)',
+            required: false,
+            choices: [
+              { name: '10', value: 10 },
+              { name: '25', value: 25 },
+              { name: '50', value: 50 },
+              { name: '100', value: 100 },
+              { name: '200', value: 200 }
+            ]
+          }
+        ]
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'join',
+        description: 'Join an IRC channel',
+        options: [
+          {
+            type: 'STRING',
+            name: 'channel',
+            description: 'IRC channel name (e.g., #general)',
+            required: true
+          },
+          {
+            type: 'STRING',
+            name: 'key',
+            description: 'Channel key/password (if required)',
+            required: false
+          }
+        ]
+      },
+      {
+        type: 'SUB_COMMAND',
+        name: 'part',
+        description: 'Leave an IRC channel',
+        options: [
+          {
+            type: 'STRING',
+            name: 'channel',
+            description: 'IRC channel name (e.g., #general)',
+            required: true
+          },
+          {
+            type: 'STRING',
+            name: 'message',
+            description: 'Part message (optional)',
+            required: false
+          }
+        ]
+      }
+    ]
+  },
+  
+  async execute(interaction: CommandInteraction, bot: Bot) {
+    if (!hasAdminPermission(interaction)) {
+      await interaction.reply({ 
+        content: '❌ You need administrator permissions to use this command.', 
+        ephemeral: true 
+      });
+      return;
+    }
+
+    try {
+      await interaction.deferReply({ ephemeral: true });
+      
+      const subcommand = interaction.options.getSubcommand();
+      
+      switch (subcommand) {
+        case 'list': {
+          const pattern = interaction.options.getString('pattern');
+          const minUsers = interaction.options.getInteger('min_users') || 1;
+          const limit = interaction.options.getInteger('limit') || 50;
+          
+          try {
+            const channels = await bot.ircUserManager.listChannels(pattern || undefined);
+            
+            // Filter by minimum users
+            const filteredChannels = channels
+              .filter(ch => ch.userCount >= minUsers)
+              .sort((a, b) => b.userCount - a.userCount)
+              .slice(0, limit);
+            
+            if (filteredChannels.length === 0) {
+              await interaction.editReply({ 
+                content: `🔍 **IRC Channel List**\n\nNo channels found${pattern ? ` matching pattern: \`${pattern}\`` : ''}${minUsers > 1 ? ` with ${minUsers}+ users` : ''}.` 
+              });
+              return;
+            }
+            
+            // Create chunks for multiple messages if needed
+            const channelChunks: IRCChannelListItem[][] = [];
+            const chunkSize = 20; // Show 20 channels per message
+            for (let i = 0; i < filteredChannels.length; i += chunkSize) {
+              channelChunks.push(filteredChannels.slice(i, i + chunkSize));
+            }
+            
+            // First chunk in the reply
+            const firstChunk = channelChunks[0];
+            const embed = new MessageEmbed()
+              .setTitle('🔍 IRC Channel Discovery')
+              .setColor(0x00ff00)
+              .setTimestamp();
+            
+            if (pattern) {
+              embed.addField('🎯 Search Pattern', `\`${pattern}\``, true);
+            }
+            embed.addField('👥 Min Users', `${minUsers}+`, true);
+            embed.addField('📊 Total Found', `${filteredChannels.length}`, true);
+            
+            const channelList = firstChunk.map(ch => {
+              const topic = ch.topic ? ` - ${ch.topic.substring(0, 50)}${ch.topic.length > 50 ? '...' : ''}` : '';
+              return `**${ch.name}** (${ch.userCount} users)${topic}`;
+            }).join('\n');
+            
+            embed.setDescription(channelList);
+            
+            if (channelChunks.length > 1) {
+              embed.setFooter(`Showing ${firstChunk.length} of ${filteredChannels.length} channels (page 1/${channelChunks.length})`);
+            }
+            
+            await interaction.editReply({ embeds: [embed] });
+            
+            // Send additional chunks as follow-ups
+            for (let i = 1; i < channelChunks.length && i < 5; i++) { // Limit to 5 total messages
+              const chunk = channelChunks[i];
+              const chunkEmbed = new MessageEmbed()
+                .setTitle(`🔍 IRC Channel Discovery (continued)`)
+                .setColor(0x00ff00)
+                .setTimestamp();
+              
+              const chunkList = chunk.map(ch => {
+                const topic = ch.topic ? ` - ${ch.topic.substring(0, 50)}${ch.topic.length > 50 ? '...' : ''}` : '';
+                return `**${ch.name}** (${ch.userCount} users)${topic}`;
+              }).join('\n');
+              
+              chunkEmbed.setDescription(chunkList);
+              chunkEmbed.setFooter(`Page ${i + 1}/${channelChunks.length}`);
+              
+              await interaction.followUp({ embeds: [chunkEmbed], ephemeral: true });
+            }
+            
+          } catch (error) {
+            logger.error('Error listing IRC channels:', error);
+            await interaction.editReply({ 
+              content: `❌ Failed to list IRC channels: ${error instanceof Error ? error.message : 'Unknown error'}` 
+            });
+          }
+          break;
+        }
+        
+        case 'join': {
+          const channel = interaction.options.getString('channel', true);
+          const key = interaction.options.getString('key');
+          
+          // Validate channel name
+          const channelRegex = /^[#&!+][^\s,:\x07]+$/; // IRC channel name validation
+          if (!channelRegex.test(channel)) {
+            await interaction.editReply({ 
+              content: '❌ Invalid IRC channel name. It must start with #, &, !, or + and cannot contain spaces, commas, colons, or control characters.' 
+            });
+            return;
+          }
+          
+          try {
+            bot.joinIRCChannel(channel, key || undefined);
+            
+            const message = `✅ **Joined IRC Channel (Session Only)**\n\n` +
+              `📍 **Channel:** ${channel}\n` +
+              `🔑 **Key:** ${key ? 'Yes (hidden)' : 'None'}\n\n` +
+              `The bot has joined the IRC channel for this session. To make this permanent, add it to your configuration file and restart the bot.`;
+            
+            await interaction.editReply({ content: message });
+            
+          } catch (error) {
+            logger.error('Error joining IRC channel:', error);
+            await interaction.editReply({ 
+              content: `❌ Failed to join IRC channel: ${error instanceof Error ? error.message : 'Unknown error'}` 
+            });
+          }
+          break;
+        }
+        
+        case 'part': {
+          const channel = interaction.options.getString('channel', true);
+          const message = interaction.options.getString('message');
+          
+          // Validate channel name
+          const channelRegex = /^[#&!+][^\s,:\x07]+$/; // IRC channel name validation
+          if (!channelRegex.test(channel)) {
+            await interaction.editReply({ 
+              content: '❌ Invalid IRC channel name. It must start with #, &, !, or + and cannot contain spaces, commas, colons, or control characters.' 
+            });
+            return;
+          }
+          
+          try {
+            bot.partIRCChannel(channel, message || undefined);
+            
+            const responseMessage = `✅ **Left IRC Channel**\n\n` +
+              `📍 **Channel:** ${channel}\n` +
+              `💬 **Part Message:** ${message || 'None'}\n\n` +
+              `The bot has left the IRC channel.`;
+            
+            await interaction.editReply({ content: responseMessage });
+            
+          } catch (error) {
+            logger.error('Error leaving IRC channel:', error);
+            await interaction.editReply({ 
+              content: `❌ Failed to leave IRC channel: ${error instanceof Error ? error.message : 'Unknown error'}` 
+            });
+          }
+          break;
+        }
+      }
+      
+    } catch (error) {
+      logger.error('Error in IRC channel discovery command:', error);
+      await interaction.editReply({ 
+        content: '❌ Failed to execute IRC channel command.' 
+      });
+    }
+  }
+};
+
 // Export all commands
 export const slashCommands: SlashCommand[] = [
   statusCommand,
@@ -2390,7 +2657,8 @@ export const slashCommands: SlashCommand[] = [
   ircChannelInfoCommand,
   ircWhoCommand,
   ircCommandCommand,
-  ircListsCommand
+  ircListsCommand,
+  ircChannelDiscoveryCommand
 ];
 
 // Command registration utility

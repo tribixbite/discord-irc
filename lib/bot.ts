@@ -303,8 +303,7 @@ class Bot {
       (this.webhookOptions ?? {}) as Record<string, string>,
     )) {
       const [id, token] = url.split('/').slice(-2);
-      // TODO: surely this is completely wrong, the types do not allow anything like this
-      const client = new discord.WebhookClient(id as any, token as any);
+      const client = new discord.WebhookClient({ id, token });
       this.webhooks[channel] = {
         id,
         client,
@@ -900,10 +899,8 @@ class Bot {
             if (discId) {
               for (const id of discId) {
                 const dId = id.substring(2, id.length - 1);
-                const name = (this.discord.users as any).find(
-                  'id',
-                  dId,
-                ).username;
+                const user = this.discord.users.cache.get(dId);
+                const name = user ? user.username : 'unknown-user';
                 value = value.replace(id, name);
               }
             }
@@ -1467,11 +1464,44 @@ class Bot {
   }
 
   /**
-   * Send raw IRC message
+   * Send raw IRC message (DANGEROUS: for internal use or trusted input only)
    */
   sendRawIRC(rawMessage: string): void {
-    logger.info(`Sending raw IRC message: ${rawMessage}`);
-    this.ircClient.conn?.write(`${rawMessage}\r\n`);
+    // CRITICAL: Add sanitization to prevent command injection
+    const sanitizedMessage = rawMessage.replace(/[\r\n]/g, '');
+    if (sanitizedMessage !== rawMessage) {
+      logger.warn(`Attempted to send raw IRC message with newlines, stripping them: ${rawMessage}`);
+    }
+    if (!sanitizedMessage) {
+      logger.warn('Attempted to send an empty raw IRC message.');
+      return;
+    }
+    logger.info(`Sending raw IRC message: ${sanitizedMessage}`);
+    this.ircClient.conn?.write(`${sanitizedMessage}\r\n`);
+  }
+
+  /**
+   * Join an IRC channel
+   */
+  joinIRCChannel(channel: string, key?: string): void {
+    logger.info(`Joining IRC channel: ${channel}${key ? ' (with key)' : ''}`);
+    if (key) {
+      this.ircClient.join(channel, key);
+    } else {
+      this.ircClient.join(channel);
+    }
+  }
+
+  /**
+   * Part from an IRC channel
+   */
+  partIRCChannel(channel: string, message?: string): void {
+    logger.info(`Parting IRC channel: ${channel}${message ? ` with message: ${message}` : ''}`);
+    if (message) {
+      this.ircClient.part(channel, message);
+    } else {
+      this.ircClient.part(channel);
+    }
   }
 
   // Private Message functionality

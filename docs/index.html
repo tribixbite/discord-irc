@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Discord-IRC Bridge - Enterprise-Grade IRC ↔ Discord Synchronization</title>
+    <meta name="description" content="A powerful, feature-rich bridge connecting Discord and IRC with enterprise-grade reliability. Complete IRC feature parity within Discord.">
+    <meta name="keywords" content="discord, irc, bridge, chat, synchronization, bot, opensource">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://discord-irc.github.io/">
+    <meta property="og:title" content="Discord-IRC Bridge">
+    <meta property="og:description" content="Enterprise-grade IRC ↔ Discord synchronization">
+    <meta property="og:image" content="https://discord-irc.github.io/assets/social-preview.png">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://discord-irc.github.io/">
+    <meta property="twitter:title" content="Discord-IRC Bridge">
+    <meta property="twitter:description" content="Enterprise-grade IRC ↔ Discord synchronization">
+    <meta property="twitter:image" content="https://discord-irc.github.io/assets/social-preview.png">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌉</text></svg>">
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar" id="navbar">
+        <div class="container">
+            <div class="nav-content">
+                <a href="#" class="logo">
+                    <span class="logo-icon">🌉</span>
+                    Discord-IRC Bridge
+                </a>
+                
+                <ul class="nav-menu">
+                    <li><a href="#home" class="nav-link active">Home</a></li>
+                    <li><a href="#features" class="nav-link">Features</a></li>
+                    <li><a href="#quickstart" class="nav-link">Quick Start</a></li>
+                    <li><a href="#config" class="nav-link">Configuration</a></li>
+                    <li><a href="#docs" class="nav-link">Docs</a></li>
+                </ul>
+                
+                <div class="nav-cta">
+                    <a href="https://github.com/discord-irc/discord-irc" class="btn btn-secondary">
+                        <i class="fab fa-github"></i>
+                        GitHub
+                    </a>
+                    <a href="#quickstart" class="btn btn-primary">
+                        Get Started
+                    </a>
+                </div>
+                
+                <button class="mobile-menu-btn" id="mobile-menu-btn">
+                    <i class="fas fa-bars"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero" id="home">
+        <div class="container">
+            <div class="hero-content fade-in">
+                <div class="hero-badge">
+                    <i class="fas fa-star"></i>
+                    Enterprise-Grade IRC Bridge
+                </div>
+                
+                <h1 class="hero-title">
+                    Bridge Discord & IRC with Enterprise Reliability
+                </h1>
+                
+                <p class="hero-subtitle">
+                    Seamlessly synchronize messages, manage channels, and maintain full IRC feature parity within Discord. Built for communities that need both platforms.
+                </p>
+                
+                <div class="hero-cta">
+                    <a href="#quickstart" class="btn btn-primary">
+                        <i class="fas fa-rocket"></i>
+                        Get Started
+                    </a>
+                    <a href="https://github.com/discord-irc/discord-irc" class="btn btn-secondary">
+                        <i class="fab fa-github"></i>
+                        View on GitHub
+                    </a>
+                    <a href="https://railway.app/template/discord-irc-bridge" class="btn btn-secondary">
+                        <i class="fas fa-cloud"></i>
+                        Deploy Now
+                    </a>
+                </div>
+                
+                <div class="hero-stats">
+                    <div class="stat-item">
+                        <div class="stat-number">100%</div>
+                        <div class="stat-label">IRC Feature Parity</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">24/7</div>
+                        <div class="stat-label">Uptime Reliability</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">∞</div>
+                        <div class="stat-label">Message Synchronization</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">🚀</div>
+                        <div class="stat-label">One-Click Deploy</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features" id="features">
+        <div class="container">
+            <div class="section-header fade-in">
+                <h2 class="section-title">Powerful Features for Modern Communities</h2>
+                <p class="section-subtitle">
+                    Everything you need to bridge Discord and IRC with enterprise-grade reliability and complete feature parity.
+                </p>
+            </div>
+            
+            <div class="features-grid">
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">
+                        <i class="fas fa-exchange-alt"></i>
+                    </div>
+                    <h3 class="feature-title">Bidirectional Synchronization</h3>
+                    <p class="feature-description">
+                        Real-time message synchronization between Discord and IRC with support for edits, deletions, and rich media.
+                    </p>
+                    <ul class="feature-list">
+                        <li>Message edit/delete synchronization</li>
+                        <li>Rich media and attachment handling</li>
+                        <li>Webhook integration for enhanced formatting</li>
+                        <li>Private message bridging with threads</li>
+                    </ul>
+                </div>
+                
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">
+                        <i class="fas fa-users"></i>
+                    </div>
+                    <h3 class="feature-title">Complete IRC Feature Parity</h3>
+                    <p class="feature-description">
+                        Access all IRC features directly from Discord with comprehensive user tracking and channel management.
+                    </p>
+                    <ul class="feature-list">
+                        <li>User tracking with IP addresses & connection details</li>
+                        <li>Channel discovery and dynamic joining</li>
+                        <li>WHO/WHOIS queries with pattern search</li>
+                        <li>Full moderation suite (kick, ban, topic, modes)</li>
+                        <li>Raw IRC command execution</li>
+                    </ul>
+                </div>
+                
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">
+                        <i class="fas fa-shield-alt"></i>
+                    </div>
+                    <h3 class="feature-title">Enterprise Security & Reliability</h3>
+                    <p class="feature-description">
+                        Built-in rate limiting, spam protection, and graceful error recovery for mission-critical deployments.
+                    </p>
+                    <ul class="feature-list">
+                        <li>Advanced rate limiting & anti-spam</li>
+                        <li>Automatic error recovery & reconnection</li>
+                        <li>Comprehensive monitoring & metrics</li>
+                        <li>Admin-only controls with permission management</li>
+                    </ul>
+                </div>
+                
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">
+                        <i class="fas fa-slash"></i>
+                    </div>
+                    <h3 class="feature-title">Rich Discord Commands</h3>
+                    <p class="feature-description">
+                        Comprehensive slash commands for all IRC operations with interactive embeds and real-time feedback.
+                    </p>
+                    <ul class="feature-list">
+                        <li>Interactive channel & user management</li>
+                        <li>Real-time IRC network exploration</li>
+                        <li>Moderation tools with safety controls</li>
+                        <li>System monitoring & health checks</li>
+                    </ul>
+                </div>
+                
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">
+                        <i class="fas fa-database"></i>
+                    </div>
+                    <h3 class="feature-title">Persistent State Management</h3>
+                    <p class="feature-description">
+                        Configurable persistence backends with automatic cleanup and state recovery across restarts.
+                    </p>
+                    <ul class="feature-list">
+                        <li>Redis & file-based persistence</li>
+                        <li>Message history with edit tracking</li>
+                        <li>User & channel state persistence</li>
+                        <li>Automatic cleanup & optimization</li>
+                    </ul>
+                </div>
+                
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">
+                        <i class="fas fa-chart-line"></i>
+                    </div>
+                    <h3 class="feature-title">Comprehensive Monitoring</h3>
+                    <p class="feature-description">
+                        Prometheus metrics, REST API, and detailed analytics for performance monitoring and optimization.
+                    </p>
+                    <ul class="feature-list">
+                        <li>Prometheus metrics integration</li>
+                        <li>RESTful monitoring API</li>
+                        <li>Performance analytics & insights</li>
+                        <li>Real-time health monitoring</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Quick Start Section -->
+    <section class="quick-start" id="quickstart">
+        <div class="container">
+            <div class="section-header fade-in">
+                <h2 class="section-title">Get Started in Minutes</h2>
+                <p class="section-subtitle">
+                    Deploy your Discord-IRC bridge with just a few simple steps. No complex configuration required.
+                </p>
+            </div>
+            
+            <div class="steps-grid">
+                <div class="step-card fade-in">
+                    <div class="step-number">1</div>
+                    <h3 class="step-title">Install the Bridge</h3>
+                    <p>Install via npm or clone from GitHub and build from source.</p>
+                    <div class="code-block">
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                        <pre><code># Install via npm
+npm install -g discord-irc-bridge
+
+# Or clone from GitHub
+git clone https://github.com/discord-irc/discord-irc.git
+cd discord-irc && npm install && npm run build</code></pre>
+                    </div>
+                </div>
+                
+                <div class="step-card fade-in">
+                    <div class="step-number">2</div>
+                    <h3 class="step-title">Configure Your Bridge</h3>
+                    <p>Create a configuration file with your Discord token and IRC settings.</p>
+                    <div class="code-block">
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                        <pre><code>{
+  "nickname": "DiscordBot",
+  "server": "irc.libera.chat",
+  "discordToken": "YOUR_DISCORD_BOT_TOKEN",
+  "channelMapping": {
+    "DISCORD_CHANNEL_ID": "#irc-channel"
+  }
+}</code></pre>
+                    </div>
+                </div>
+                
+                <div class="step-card fade-in">
+                    <div class="step-number">3</div>
+                    <h3 class="step-title">Start Bridging</h3>
+                    <p>Launch the bridge and start synchronizing messages between platforms.</p>
+                    <div class="code-block">
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                        <pre><code># Start the bridge
+npm start -- --config config.json
+
+# Or use the global installation
+discord-irc-bridge --config config.json</code></pre>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="text-align: center; margin-top: 3rem;">
+                <a href="https://railway.app/template/discord-irc-bridge" class="btn btn-primary" style="font-size: 1.1rem; padding: 1rem 2rem;">
+                    <i class="fas fa-rocket"></i>
+                    Deploy to Railway Now
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Configuration Helper Section -->
+    <section class="config-helper" id="config">
+        <div class="container">
+            <div class="section-header fade-in">
+                <h2 class="section-title">Interactive Configuration Helper</h2>
+                <p class="section-subtitle">
+                    Generate your configuration file with our interactive helper. Get links to required resources and tips for optimal setup.
+                </p>
+            </div>
+            
+            <div class="config-form fade-in">
+                <div class="tab-nav">
+                    <button class="tab-btn active" onclick="switchTab('basic')">Basic Setup</button>
+                    <button class="tab-btn" onclick="switchTab('advanced')">Advanced Features</button>
+                    <button class="tab-btn" onclick="switchTab('enterprise')">Enterprise</button>
+                </div>
+                
+                <!-- Basic Configuration -->
+                <div class="tab-content active" id="basic-tab">
+                    <div class="form-group">
+                        <label class="form-label" for="bot-nickname">IRC Bot Nickname</label>
+                        <input type="text" id="bot-nickname" class="form-input" placeholder="DiscordBot" oninput="updateConfig()">
+                        <div class="form-help">Choose a unique nickname for your bot on IRC</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="irc-server">IRC Server</label>
+                        <input type="text" id="irc-server" class="form-input" placeholder="irc.libera.chat" oninput="updateConfig()">
+                        <div class="form-help">Popular networks: irc.libera.chat, irc.oftc.net, irc.rizon.net</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="discord-token">Discord Bot Token</label>
+                        <input type="password" id="discord-token" class="form-input" placeholder="Your Discord bot token" oninput="updateConfig()">
+                        <div class="form-help">
+                            <a href="https://discord.com/developers/applications" target="_blank">Get your Discord bot token here</a>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="discord-channel">Discord Channel ID</label>
+                        <input type="text" id="discord-channel" class="form-input" placeholder="123456789012345678" oninput="updateConfig()">
+                        <div class="form-help">
+                            Type \#channel-name in Discord to get the ID, or 
+                            <a href="https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID-" target="_blank">follow this guide</a>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="irc-channel">IRC Channel</label>
+                        <input type="text" id="irc-channel" class="form-input" placeholder="#general" oninput="updateConfig()">
+                        <div class="form-help">IRC channel name (must start with #)</div>
+                    </div>
+                </div>
+                
+                <!-- Advanced Configuration -->
+                <div class="tab-content" id="advanced-tab">
+                    <div class="form-group">
+                        <label class="form-label" for="webhook-url">Discord Webhook URL (Optional)</label>
+                        <input type="url" id="webhook-url" class="form-input" placeholder="https://discord.com/api/webhooks/..." oninput="updateConfig()">
+                        <div class="form-help">
+                            <a href="https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks" target="_blank">Create a webhook</a> for better message formatting
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="pm-channel">Private Messages Channel ID (Optional)</label>
+                        <input type="text" id="pm-channel" class="form-input" placeholder="987654321098765432" oninput="updateConfig()">
+                        <div class="form-help">Discord channel for IRC private message threads</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">
+                            <input type="checkbox" id="rate-limiting" onchange="updateConfig()" style="margin-right: 0.5rem;">
+                            Enable Rate Limiting
+                        </label>
+                        <div class="form-help">Protect against spam and abuse</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">
+                            <input type="checkbox" id="status-notifications" onchange="updateConfig()" style="margin-right: 0.5rem;">
+                            Enable Status Notifications
+                        </label>
+                        <div class="form-help">Show join/leave notifications in Discord</div>
+                    </div>
+                </div>
+                
+                <!-- Enterprise Configuration -->
+                <div class="tab-content" id="enterprise-tab">
+                    <div class="form-group">
+                        <label class="form-label" for="redis-url">Redis URL (Optional)</label>
+                        <input type="text" id="redis-url" class="form-input" placeholder="redis://localhost:6379" oninput="updateConfig()">
+                        <div class="form-help">For persistent state and message history</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="s3-bucket">S3 Bucket (Optional)</label>
+                        <input type="text" id="s3-bucket" class="form-input" placeholder="discord-attachments" oninput="updateConfig()">
+                        <div class="form-help">For storing Discord attachments</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">
+                            <input type="checkbox" id="metrics-enabled" onchange="updateConfig()" style="margin-right: 0.5rem;">
+                            Enable Metrics Collection
+                        </label>
+                        <div class="form-help">Prometheus metrics on port 3001</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="log-level">Log Level</label>
+                        <select id="log-level" class="form-input" onchange="updateConfig()">
+                            <option value="info">Info</option>
+                            <option value="debug">Debug</option>
+                            <option value="warn">Warning</option>
+                            <option value="error">Error</option>
+                        </select>
+                        <div class="form-help">Verbosity level for logging</div>
+                    </div>
+                </div>
+                
+                <div class="config-output">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <strong>Generated Configuration:</strong>
+                        <button class="copy-btn" onclick="copyConfig(this)">Copy Config</button>
+                    </div>
+                    <pre id="config-preview">{
+  "nickname": "DiscordBot",
+  "server": "irc.libera.chat",
+  "discordToken": "YOUR_DISCORD_BOT_TOKEN",
+  "channelMapping": {
+    "DISCORD_CHANNEL_ID": "#irc-channel"
+  }
+}</pre>
+                </div>
+                
+                <div id="config-message"></div>
+                
+                <div style="text-align: center; margin-top: 2rem;">
+                    <button class="btn btn-primary" onclick="downloadConfig()">
+                        <i class="fas fa-download"></i>
+                        Download Config File
+                    </button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h3>Discord-IRC Bridge</h3>
+                    <p style="color: var(--text-secondary); line-height: 1.6;">
+                        Enterprise-grade IRC ↔ Discord synchronization with complete feature parity and reliable performance.
+                    </p>
+                    <div style="margin-top: 1rem;">
+                        <a href="https://github.com/discord-irc/discord-irc" style="color: var(--text-secondary); font-size: 1.5rem; margin-right: 1rem;">
+                            <i class="fab fa-github"></i>
+                        </a>
+                        <a href="https://discord.gg/your-server" style="color: var(--text-secondary); font-size: 1.5rem; margin-right: 1rem;">
+                            <i class="fab fa-discord"></i>
+                        </a>
+                        <a href="https://twitter.com/discordirc" style="color: var(--text-secondary); font-size: 1.5rem;">
+                            <i class="fab fa-twitter"></i>
+                        </a>
+                    </div>
+                </div>
+                
+                <div class="footer-section">
+                    <h3>Quick Links</h3>
+                    <ul class="footer-links">
+                        <li><a href="#home">Home</a></li>
+                        <li><a href="#features">Features</a></li>
+                        <li><a href="#quickstart">Quick Start</a></li>
+                        <li><a href="#config">Configuration</a></li>
+                        <li><a href="https://github.com/discord-irc/discord-irc">GitHub</a></li>
+                    </ul>
+                </div>
+                
+                <div class="footer-section">
+                    <h3>Resources</h3>
+                    <ul class="footer-links">
+                        <li><a href="https://github.com/discord-irc/discord-irc/blob/main/README.md">Documentation</a></li>
+                        <li><a href="https://github.com/discord-irc/discord-irc/issues">Support</a></li>
+                        <li><a href="https://discord.com/developers/applications">Discord Developer Portal</a></li>
+                        <li><a href="https://libera.chat/">Libera.Chat IRC Network</a></li>
+                        <li><a href="https://railway.app/template/discord-irc-bridge">Deploy on Railway</a></li>
+                    </ul>
+                </div>
+                
+                <div class="footer-section">
+                    <h3>Deploy</h3>
+                    <ul class="footer-links">
+                        <li><a href="https://railway.app/template/discord-irc-bridge">Railway</a></li>
+                        <li><a href="https://heroku.com">Heroku</a></li>
+                        <li><a href="https://vercel.com">Vercel</a></li>
+                        <li><a href="https://aws.amazon.com/ec2/">AWS EC2</a></li>
+                        <li><a href="https://www.digitalocean.com/products/droplets">DigitalOcean</a></li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="footer-bottom">
+                <p>&copy; 2024 Discord-IRC Bridge. Open source under MIT License. Made with ❤️ by the community.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- JavaScript -->
+    <script src="./script.js"></script>
+</body>
+</html>

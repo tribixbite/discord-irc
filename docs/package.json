@@ -1,0 +1,9 @@
+{
+  "name": "discord-irc-docs",
+  "version": "1.0.0",
+  "description": "Documentation site for discord-irc",
+  "devDependencies": {
+    "highlight.js": "^11.8.0",
+    "markdown-it": "^13.0.1"
+  }
+}

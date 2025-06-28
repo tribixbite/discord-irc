@@ -1,0 +1,125 @@
+name: Deploy Documentation Site
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - 'README.md'
+      - '.github/workflows/deploy-docs.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - 'README.md'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: |
+        cd docs
+        npm ci
+
+    - name: Generate documentation content
+      run: |
+        node << 'EOF'
+        const fs = require('fs');
+        const path = require('path');
+        const MarkdownIt = require('markdown-it');
+        const hljs = require('highlight.js');
+
+        // Configure markdown-it with syntax highlighting
+        const md = new MarkdownIt({
+          html: true,
+          linkify: true,
+          typographer: true,
+          highlight: function (str, lang) {
+            if (lang && hljs.getLanguage(lang)) {
+              try {
+                return '<pre class="hljs"><code>' +
+                       hljs.highlight(str, { language: lang, ignoreIllegals: true }).value +
+                       '</code></pre>';
+              } catch (__) {}
+            }
+            return '<pre class="hljs"><code>' + md.utils.escapeHtml(str) + '</code></pre>';
+          }
+        });
+
+        // Read README.md
+        const readmePath = path.join(__dirname, 'README.md');
+        const readmeContent = fs.readFileSync(readmePath, 'utf8');
+
+        // Convert markdown to HTML
+        const htmlContent = md.render(readmeContent);
+
+        // Extract sections for navigation
+        const sections = [];
+        const sectionRegex = /^(#+)\s+(.+)$/gm;
+        let match;
+        while ((match = sectionRegex.exec(readmeContent)) !== null) {
+          const level = match[1].length;
+          const title = match[2].replace(/[^\w\s]/g, '').trim();
+          const id = title.toLowerCase().replace(/\s+/g, '-');
+          sections.push({ title, id, level });
+        }
+
+        // Create docs data
+        const docsData = {
+          content: htmlContent,
+          sections: sections,
+          lastUpdated: new Date().toISOString()
+        };
+
+        // Write to docs directory
+        const docsDir = path.join(__dirname, 'docs');
+        if (!fs.existsSync(docsDir)) {
+          fs.mkdirSync(docsDir, { recursive: true });
+        }
+
+        fs.writeFileSync(
+          path.join(docsDir, 'readme-content.json'),
+          JSON.stringify(docsData, null, 2)
+        );
+
+        console.log('Documentation content generated successfully');
+        EOF
+
+    - name: Setup Pages
+      uses: actions/configure-pages@v3
+
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v2
+      with:
+        path: './docs'
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v2
